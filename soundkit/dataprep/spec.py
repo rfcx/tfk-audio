@@ -132,7 +132,7 @@ class SpecGenerator():
         for c,i in enumerate(files_to_process[:limit]):
             self._save_spec(i, c)         
     
-    def plot_example(self, file=None, dblims=list([-150, 20])):
+    def plot_example(self, file=None, dblims=list([-100, 20])):
         if (file is None):
             assert len(self._processed_files)>0, "Error: No files found."
             tmp = list(self._processed_files)
@@ -150,7 +150,7 @@ class SpecGenerator():
         plt.axis('off')
         plt.colorbar(aspect=20, label='dB');
 
-    def plot_examples(self, path=None, dblims=list([-150, 20])):
+    def plot_examples(self, path=None, dblims=list([-100, 20])):
         if (path is None):
             assert len(self._processed_files)>0, "Error: No files found."
             tmp = list(self._processed_files)
