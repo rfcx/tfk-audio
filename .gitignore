@@ -1,0 +1,5 @@
+*/tmp/*
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+*/__pycache__/*
+/tests/test_config.yaml

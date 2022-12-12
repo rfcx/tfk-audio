@@ -14,5 +14,4 @@ dfp = arbimonloader.get_meta(pm_ids=pm_ids, valid=1)
 
 # Extract wav samples from Arbimon files
 arbimonloader.extract_samples(outdir='./tmp/positives/',
-                              meta=dfp[:10] # using a slice of the df for example, this function will by default use the df created by get_meta()
-                             ) 
+                              meta=dfp[:10]) # using a slice of the df for example
