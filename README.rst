@@ -35,7 +35,7 @@ Audio data augmentation, e.g.::
     
     traingen = datagen.TrainGenerator(files_train,
                                       y_train,
-                                      labels,
+                                      label_map,
                                       batch_size = 16,
                                       augment = True,
                                       augment_blend_prob = 1,
