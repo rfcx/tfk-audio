@@ -1,4 +1,4 @@
-soundkit
+soundkit (open to better name ideas)
 ================
 A Python module for streamlining audio recognition
 
