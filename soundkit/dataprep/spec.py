@@ -8,31 +8,40 @@ from soundkit.config import get_config
 import matplotlib.pyplot as plt
 
 class SpecGenerator():
-    """ Tensorflow-Keras-compatible spectrogram data handler
+    """ Tensorflow-compatible spectrogram data handler
     """
     def __init__(self, 
                  sample_rate=16000,
                  stft_window_seconds=0.025,
                  stft_hop_seconds=0.01,
-                 db_scale=True,
                  min_hz=None,
                  max_hz=None,
-                 sample_seconds=3.0,
+                 db_scale=True,
                  db_limits=(None,None),
                  mel_bands=None,
-                 tflite_compatible=True):
+                 tflite_compatible=True,
+                 sample_seconds=3.0):
         """
         Args:
-            sample_rate: 
+            sample_rate:            target sample rate of processed audio
+            stft_window_seconds:    seconds of audio processed in each STFT frame
+            stft_hop_seconds:       seconds shifted between STFT frames
+            min_hz:                 target min hz of computed spectrograms
+            max_hz:                 target max hz of computed spectrograms
+            db_scale:               whether to apply dB scaling to amplitudes
+            db_limits:              dB values will be clipped within this range
+            mel_bands:              number of mel bands to apply
+            tflite_compatible:      if True will use a tflite-compatible STFT operation
+            sample_seconds:         model input seconds (only used in fit module)
         """
         
         self.sample_rate = sample_rate
         self.stft_window_seconds = stft_window_seconds
         self.stft_hop_seconds = stft_hop_seconds
-        self.db_scale = db_scale
-        self.db_limits = db_limits
         self.min_hz = min_hz
         self.max_hz = max_hz
+        self.db_scale = db_scale
+        self.db_limits = db_limits
         self.sample_seconds = sample_seconds
         self.mel_bands = mel_bands
         self.second_width = int(1/self.stft_hop_seconds-(self.stft_window_seconds/self.stft_hop_seconds)+1)
@@ -134,12 +143,19 @@ class SpecGenerator():
         if db_limits[0] is None:
             db_limits = (tf.math.reduce_min(spec), db_limits[1])
         if db_limits[1] is None:
-            db_limits = (db_limits[0], tf.math.reduce_max(spec))
-            
+            db_limits = (db_limits[0], tf.math.reduce_max(spec))    
         return tf.clip_by_value(spec, db_limits[0], db_limits[1])
     
     def process_folder(self, folder, ext='.wav', overwrite=True, update=100, limit=None):
-        """Generates a spectrogram file for each audio file in a directory"""
+        """Generates a spectrogram file for each audio file in a directory
+        
+        Args:
+            folder: path to folder in which to search for audio files
+            ext: extension of files to process
+            overwrite: whether to overwrite previous spectrogram files
+            update: interval of files processed print statement
+            limit: limit of files to process (added for demo-ing)
+        """
         files_total = []
         files_to_process = []
         for root, dirs, files in os.walk(folder):
@@ -148,6 +164,8 @@ class SpecGenerator():
                     files_total.append(os.path.join(root, name))
                     if not os.path.exists(os.path.join(root, name+self._spec_file_sig)):
                         files_to_process.append(os.path.join(root, name))
+        if overwrite:
+            files_to_process = files_total
         print('Audio files found:',len(files_total))
         print('Spectrogram files found:',len(files_total)-len(files_to_process))
         print('To process:',len(files_to_process))
@@ -155,6 +173,17 @@ class SpecGenerator():
             self._save_spec(i, c)         
     
     def plot_example(self, x=None, dblims=list([-100, 20])):
+        """ Plots an example spectrogram
+        
+        Args:
+            x: one of
+                path to spectrogram file
+                path to audio file
+                waveform array
+                spectrogram array
+                None (will look for a random example in _processed_files attribute)
+            dblims: dB range of output (assumes dB scaling is applied by default)
+        """
         if (x is None):
             assert len(self._processed_files)>0, "Error: No files found."
             tmp = list(self._processed_files)
@@ -188,6 +217,12 @@ class SpecGenerator():
         plt.colorbar(aspect=20, label='dB');
 
     def plot_examples(self, path=None, dblims=list([-100, 20])):
+        """ Plots a grid of example spectrograms
+        
+        Args:
+            path: path to folder in which to search for spectrogram files
+            dblims: dB range of output (assumes dB scaling is applied by default)
+        """
         if (path is None):
             assert len(self._processed_files)>0, "Error: No spectrogram files given or processed with process_folder."
             tmp = list(self._processed_files)
@@ -209,6 +244,8 @@ class SpecGenerator():
             plt.axis('off')
             
     def shape(self, input_seconds):
+        """ Spectrogram shape for a given waveform duration
+        """
         width = int((input_seconds)/self.stft_hop_seconds-\
                     (self.stft_window_seconds/self.stft_hop_seconds)+1)
         return (self.num_frequency_bins, width)
@@ -216,7 +253,11 @@ class SpecGenerator():
 
             
 def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):
-    """TF-Lite-compatible version of tf.abs(tf.signal.stft())."""
+    """TF-Lite-compatible version of tf.abs(tf.signal.stft()).
+    
+    Taken from https://github.com/tensorflow/models/blob/master/research/audioset/yamnet/features.py
+    
+    """
     def _hann_window():
         return tf.reshape(
             tf.constant(

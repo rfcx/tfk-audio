@@ -380,7 +380,7 @@ def combine_labels_single_one_hot(y1: tf.Tensor, y2: tf.Tensor, label_map: dict)
 def freq_mask(x: tf.Tensor, maxwidth: float):
     """ Apply frequency mask to a spectrogram
     
-    From tensorflow_io
+    Taken from tf.io: https://github.com/tensorflow/io/blob/v0.24.0/tensorflow_io/python/ops/audio_ops.py
     
     Args:
         x: tensor sample
@@ -400,7 +400,7 @@ def freq_mask(x: tf.Tensor, maxwidth: float):
 def time_mask(x: tf.Tensor, maxwidth: float):
     """ Apply frequency mask to a spectrogram
     
-    From tensorflow_io
+    Taken from tf.io: https://github.com/tensorflow/io/blob/v0.24.0/tensorflow_io/python/ops/audio_ops.py
     
     Args:
         x: tensor sample
