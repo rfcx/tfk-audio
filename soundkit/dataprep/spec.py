@@ -3,11 +3,13 @@ import random
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
-import soundkit.dataprep.audio
+import soundkit.dataprep.audio as audio
 from soundkit.config import get_config
 import matplotlib.pyplot as plt
 
 class SpecGenerator():
+    """ Tensorflow-Keras-compatible spectrogram data handler
+    """
     def __init__(self, 
                  sample_rate=16000,
                  stft_window_seconds=0.025,
@@ -19,6 +21,10 @@ class SpecGenerator():
                  db_limits=(None,None),
                  mel_bands=None,
                  tflite_compatible=True):
+        """
+        Args:
+            sample_rate: 
+        """
         
         self.sample_rate = sample_rate
         self.stft_window_seconds = stft_window_seconds
@@ -41,15 +47,24 @@ class SpecGenerator():
         self.stft_window_samples = int(self.stft_window_seconds*self.sample_rate)
         self.stft_hop_samples = int(round(self.sample_rate * self.stft_hop_seconds))
         self.fft_length = 2 ** int(np.ceil(np.log(self.stft_window_samples) / np.log(2.0)))
-        self.num_frequency_bins = self.fft_length // 2 + 1
+        if self.mel_bands is not None and self.mel_bands>0:
+            self.num_frequency_bins = self.mel_bands
+        else:
+            self.num_frequency_bins = self.fft_length // 2 + 1
         self.tflite_compatible = tflite_compatible
+        self._spec_file_sig = '_spec.npy'
         self._processed_files = set()
         
     def wav_to_spec(self, waveform):
         """Converts a 1-D waveform into a spectrogram
+        
+        Args:
+            waveform: [<# samples>,]
+        Returns:
+            spec: [<# frequency bins>, <# time frames>]
         """
         if type(waveform)==str:
-            waveform, _ = soundkit.dataprep.audio.load(waveform, self.sample_rate)
+            waveform, _ = audio.load(waveform, self.sample_rate)
         if self.tflite_compatible:
             spec = _tflite_stft_magnitude(
                 signal=waveform,
@@ -73,17 +88,22 @@ class SpecGenerator():
         return spec
     
     def save_spec(self, audio_path):
+        """ Saves a spectrogram file
+        """
         spec = self.wav_to_spec(audio_path)
-        np.save(audio_path+'_spec.npy', spec)
+        np.save(audio_path+self._spec_file_sig, spec)
         
     def _save_spec(self, path, count, update=100):
         self.save_spec(path)
         if count%update==0:
             print(count)
-        self._processed_files.add(path+'_spec.npy')
+        self._processed_files.add(path+self._spec_file_sig)
     
     def crop(self, spec):
-        """Crop a spectrogram a desired frequency range
+        """Crop a spectrogram to frequency range
+        
+        Args:
+            spec: [<# time frames>, <# frequency bands>]
         """
         linear_frequencies = math_ops.linspace(0.0, self.sample_rate/2.0, self.num_frequency_bins)
         idx_min = tf.squeeze(tf.where(linear_frequencies>=self.min_hz))[0]
@@ -93,21 +113,18 @@ class SpecGenerator():
     def apply_mel_scale(self, spec):
         """Converts a linear spectrogram into a mel-scaled spectrogram
         Args:
-            spec: array with shape [<# frequency bands>, <# time frames>]
+            spec: array with shape [<# time frames>, <# frequency bands>]
         Returns:
-            mel_spectrogram: spectrogram with shape [<# frequency bands>, <# time frames>]
+            mel_spectrogram: spectrogram with shape [<# time frames>, <# frequency bands>]
         """
         # Convert spectrogram into mel spectrogram.
         linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
             num_mel_bins=self.mel_bands,
-            num_spectrogram_bins=spec.shape[0],
+            num_spectrogram_bins=spec.shape[1],
             sample_rate=self.sample_rate,
             lower_edge_hertz=self.min_hz,
             upper_edge_hertz=self.max_hz)
-        spec = tf.transpose(spec)
         mel_spectrogram = tf.matmul(spec, linear_to_mel_weight_matrix)
-        mel_spectrogram = tf.transpose(mel_spectrogram)
-
         return mel_spectrogram
     
     def apply_db_scale(self, spec, db_limits=[None, None]):
@@ -121,27 +138,47 @@ class SpecGenerator():
             
         return tf.clip_by_value(spec, db_limits[0], db_limits[1])
     
-    def process_folder(self, folder, ext='.wav', update=100, limit=None):
+    def process_folder(self, folder, ext='.wav', overwrite=True, update=100, limit=None):
         """Generates a spectrogram file for each audio file in a directory"""
+        files_total = []
         files_to_process = []
         for root, dirs, files in os.walk(folder):
             for name in files:
                 if name.endswith(ext):
-                    files_to_process.append(os.path.join(root, name))
-        print('Files found:',len(files_to_process))
+                    files_total.append(os.path.join(root, name))
+                    if not os.path.exists(os.path.join(root, name+self._spec_file_sig)):
+                        files_to_process.append(os.path.join(root, name))
+        print('Audio files found:',len(files_total))
+        print('Spectrogram files found:',len(files_total)-len(files_to_process))
+        print('To process:',len(files_to_process))
         for c,i in enumerate(files_to_process[:limit]):
             self._save_spec(i, c)         
     
-    def plot_example(self, file=None, dblims=list([-100, 20])):
-        if (file is None):
+    def plot_example(self, x=None, dblims=list([-100, 20])):
+        if (x is None):
             assert len(self._processed_files)>0, "Error: No files found."
             tmp = list(self._processed_files)
             random.shuffle(tmp)
             tmp = tmp[0]
         else:
-            tmp = file
+            tmp = x
+        if isinstance(tmp, str):
+            if tmp.endswith(self._spec_file_sig):
+                spec = np.load(tmp)
+            else:
+                try:
+                    wav, sr = audio.load(tmp, self.sample_rate)
+                    spec = self.wav_to_spec(wav)
+                except Exception as e:
+                    print(e)
+                    print("Error: Could not interpret input as path to audio or spectrogram file")
+        elif (isinstance(tmp, tf.Tensor)) or (isinstance(tmp, np.ndarray)):
+            assert len(np.shape(tmp)) in (1,2), "Error: Array inputs are expected to have 1 (waveform) or 2 (spectrogram) dimensions"
+            if len(np.shape(tmp))==1:
+                spec = self.wav_to_spec(tmp)
+            elif len(np.shape(tmp))==2:
+                spec = tmp
         plt.figure(figsize=(5,4))
-        spec = np.load(tmp)
         plt.pcolormesh(spec);
         for i in range(2):
             if not self.db_limits[i] is None:
@@ -152,11 +189,11 @@ class SpecGenerator():
 
     def plot_examples(self, path=None, dblims=list([-100, 20])):
         if (path is None):
-            assert len(self._processed_files)>0, "Error: No files found."
+            assert len(self._processed_files)>0, "Error: No spectrogram files given or processed with process_folder."
             tmp = list(self._processed_files)
         else:
-            tmp = [path+i for i in os.listdir(path) if i.endswith('_spec.npy')]
-        assert len(tmp)>0, "Error: No files found."
+            tmp = [path+i for i in os.listdir(path) if i.endswith(self._spec_file_sig)]
+        assert len(tmp)>0, "Error: No spectrogram files found."
         random.shuffle(tmp)
         plt.figure(figsize=(10,10))
         nr=4
@@ -170,6 +207,12 @@ class SpecGenerator():
                     dblims[i] = self.db_limits[i]
             plt.clim(dblims);
             plt.axis('off')
+            
+    def shape(self, input_seconds):
+        width = int((input_seconds)/self.stft_hop_seconds-\
+                    (self.stft_window_seconds/self.stft_hop_seconds)+1)
+        return (self.num_frequency_bins, width)
+
 
             
 def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):

@@ -14,9 +14,11 @@ def load(path, sr=None):
         sr: sample rate of the recording
         
     """
-    y, sr0 = librosa.load(path, sr=None)
-    if sr is not None:
-        y = resample(y, sr0, sr)
+    target_sr = sr
+    y, sr = librosa.load(path, sr=None) # load with original sample rate
+    if target_sr is not None:
+        y = resample(y, sr, target_sr) # maybe resample
+        sr = target_sr
     return y, sr
 
 

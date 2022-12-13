@@ -215,6 +215,13 @@ class TrainGenerator(Sequence):
         """ The number of batches per epoch
         """
         return int(np.floor(len(self.files) / self.batch_size))
+    
+    def on_epoch_end(self):
+        """ Updates indices after each epoch
+        """
+        self.indices = tf.range(len(self.files))
+        if self.shuffle == True:
+            self.indices = tf.random.shuffle(self.indices)
 
     def __getitem__(self, index):
         """ Wrapper for __data_generation to get batch based on index
@@ -235,13 +242,6 @@ class TrainGenerator(Sequence):
         # Generate data  
         X, y = self.__data_generation(files_batch, labels_batch)
         return X, y
-
-    def on_epoch_end(self):
-        """ Updates indices after each epoch
-        """
-        self.indices = tf.range(len(self.files))
-        if self.shuffle == True:
-            self.indices = tf.random.shuffle(self.indices)
 
     def __data_generation(self, files_batch, labels_batch):
         """ Generates a batch based on list of files and labels
