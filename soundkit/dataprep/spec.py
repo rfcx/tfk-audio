@@ -170,7 +170,7 @@ class SpecGenerator():
         print('Spectrogram files found:',len(files_total)-len(files_to_process))
         print('To process:',len(files_to_process))
         for c,i in enumerate(files_to_process[:limit]):
-            self._save_spec(i, c)         
+            self._save_spec(i, c, update=update)         
     
     def plot_example(self, x=None, dblims=list([-100, 20])):
         """ Plots an example spectrogram
