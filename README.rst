@@ -1,6 +1,6 @@
-soundkit (open to better name ideas)
+tf-ark
 ================
-A Python module for streamlining audio recognition
+**T**\ ensor\ **F**\ low **A**\ udio **R**\ ecognition **K**\ it
 
 Submodules
 ----------------
