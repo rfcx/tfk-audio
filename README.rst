@@ -1,6 +1,6 @@
-tf-ark
+tfk-audio
 ================
-**T**\ ensor\ **F**\ low **A**\ udio **R**\ ecognition **K**\ it
+**T**\ ensor\ **F**\ low **K**\ eras Audio
 
 Submodules
 ----------------
@@ -9,7 +9,7 @@ dataprep
 ~~~~~~~~~~~~~
 Audio and spectrogram handling, e.g.::
 
-    from tf_ark import dataprep
+    from tfk_audio import dataprep
     
     # load audio
     wav, sr = dataprep.audio.load('example.wav')
@@ -31,7 +31,7 @@ fit
 ~~~~~~~~~~~~~
 Audio data augmentation, e.g.::
 
-    from tf_ark.fit import datagen
+    from tfk_audio.fit import datagen
     
     traingen = datagen.TrainGenerator(files_train,
                                       y_train,
@@ -49,7 +49,7 @@ Audio data augmentation, e.g.::
     
 Models compatible with audio and spectrogram data, e.g.::
 
-    from tf_ark.fit import models
+    from tfk_audio.fit import models
     
     # create model
     model = models.ImageNetModel(backbone=imagenet_models.MobileNetV2,
