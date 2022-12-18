@@ -9,7 +9,7 @@ dataprep
 ~~~~~~~~~~~~~
 Audio and spectrogram handling, e.g.::
 
-    from soundkit import dataprep
+    from tf_ark import dataprep
     
     # load audio
     wav, sr = dataprep.audio.load('example.wav')
@@ -31,7 +31,7 @@ fit
 ~~~~~~~~~~~~~
 Audio data augmentation, e.g.::
 
-    from soundkit.fit import datagen
+    from tf_ark.fit import datagen
     
     traingen = datagen.TrainGenerator(files_train,
                                       y_train,
@@ -49,7 +49,7 @@ Audio data augmentation, e.g.::
     
 Models compatible with audio and spectrogram data, e.g.::
 
-    from soundkit.fit import models
+    from tf_ark.fit import models
     
     # create model
     model = models.ImageNetModel(backbone=imagenet_models.MobileNetV2,

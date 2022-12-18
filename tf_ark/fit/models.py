@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
 from . import yamnet
-from soundkit.dataprep import spec
+from ..dataprep import spec
 
 
 class SpecLayer(tf.keras.layers.Layer):

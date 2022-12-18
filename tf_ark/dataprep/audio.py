@@ -1,13 +1,16 @@
 import os
 import librosa
+import tensorflow as tf
 from ffmpy import FFmpeg, FFRuntimeError
 
 
-def load(path, sr=None):
-    """Loads an audio file
+def load(path, sr=None, numpy=False):
+    """Loads a .wav file
     
     Args:
-        path: audio file path
+        path: .wav file path
+        sr: desired sample rate of loaded audio
+        numpy: whether to return loaded audio as numpy array
     
     Returns:
         y: time series of amplitudes with shape [<# samples>,]
@@ -15,11 +18,18 @@ def load(path, sr=None):
         
     """
     target_sr = sr
-    y, sr = librosa.load(path, sr=None) # load with original sample rate
-    if target_sr is not None:
-        y = resample(y, sr, target_sr) # maybe resample
+    y, sr = tf.audio.decode_wav(tf.io.read_file(path)) # load with original sample rate
+    if len(tf.shape(y))>1:
+        y = tf.reduce_mean(y, axis=1)
+    if target_sr is not None: # maybe resample
+        y = y.numpy()
+        y = resample(y, sr, target_sr)
+        y = tf.convert_to_tensor(y)
         sr = target_sr
-    return y, sr
+    if numpy:
+        return y.numpy(), sr.numpy()
+    else:
+        return y, sr
 
 
 def resample(wav, sr, sr_new):

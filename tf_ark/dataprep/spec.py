@@ -3,8 +3,7 @@ import random
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
-import soundkit.dataprep.audio as audio
-from soundkit.config import get_config
+from . import audio
 import matplotlib.pyplot as plt
 
 class SpecGenerator():
@@ -227,6 +226,8 @@ class SpecGenerator():
             assert len(self._processed_files)>0, "Error: No spectrogram files given or processed with process_folder."
             tmp = list(self._processed_files)
         else:
+            if not path.endswith('/'):
+                path+='/'
             tmp = [path+i for i in os.listdir(path) if i.endswith(self._spec_file_sig)]
         assert len(tmp)>0, "Error: No spectrogram files found."
         random.shuffle(tmp)
