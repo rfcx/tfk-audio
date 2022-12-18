@@ -251,7 +251,6 @@ class SpecGenerator():
                     (self.stft_window_seconds/self.stft_hop_seconds)+1)
         return (self.num_frequency_bins, width)
 
-
             
 def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):
     '''TF-Lite-compatible version of tf.abs(tf.signal.stft()).
