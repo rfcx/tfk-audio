@@ -88,20 +88,24 @@ def get_labels_binary(files: list, label_map: dict) -> np.ndarray:
     assert len(label_map)>0, 'Error: Empty label map'
     assert len(label_map)<3, 'Error: Too many classes to create binary labels'
     if len(label_map)>1:
-        assert 'background' in list(label_map.keys()), 'Error: Could not interpret label_map as binary. \
-        It should contain a single class, or two classes with one named "background".'  
+        assert 'background' in list(label_map.keys()), \
+        '''Error: Could not interpret label_map as binary. 
+It should contain a single class, or two classes with one named "background".
+        '''  
     if len(label_map)==1:
         assert files[0].split('/')[-3] in ('positive', 'negative'), \
-        'Error: Unsure how to determine if the class is present. If label_map has a single class, \
-        files should be in a directory that follows <"positive" or "negative">/<class_name>/<filename>. \
-        Otherwise, it should have two classes with one named "background".'
+        '''Error: Unsure how to determine if the class is present. If label_map has a single class,
+files should be in a directory that follows <"positive" or "negative">/<class_name>/<filename>. '
+Otherwise, it should have two classes with one named "background".
+        '''
     y = np.ones((len(files),1))*-1
     for c,i in enumerate(files):
         if len(label_map)==1:
             label = i.split('/')[-3]
             assert label in ('positive', 'negative'), \
-            'Error: Could not interpret label. If label_map has a single class, \
-            files should be in a directory that follows <"positive" or "negative">/<class_name>/<filename>.'
+            '''Error: Could not interpret label. If label_map has a single class, 
+files should be in a directory that follows <"positive" or "negative">/<class_name>/<filename>.
+            '''
             if label=='positive':
                 y[c] = 1
             else:

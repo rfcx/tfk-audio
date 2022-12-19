@@ -59,6 +59,7 @@ class SpecGenerator():
             self.num_frequency_bins = self.mel_bands
         else:
             self.num_frequency_bins = self.fft_length // 2 + 1
+        self.image_shape = (self.num_frequency_bins, self.sample_width)
         self.tflite_compatible = tflite_compatible
         self._spec_file_sig = '_spec.npy'
         self._processed_files = set()

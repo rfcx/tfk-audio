@@ -7,29 +7,39 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from .labels import *
 
+AUTO = tf.data.AUTOTUNE
 
-def make_spec_dataset(files: list,
-                      image_shape: tuple,
-                      batch_size: int = 1,
-                      augment: bool = True,
-                      augment_blend_prob: float = 0.5,
-                      augment_max_time_masks: int = 5,
-                      augment_max_time_mask_size: float = 0.1,
-                      augment_max_freq_masks: int = 5,
-                      augment_max_freq_mask_size: float = 0.1,
-                      augment_add_noise_prob: float = 0.0,
-                      augment_add_noise_stds: float = 0.5,
-                      augment_max_time_shift: float = 0.33,
-                      augment_max_freq_shift: float = 0.05,
-                      augment_max_contrast: float = 2.0,
-                      shuffle: bool = True):
+def spectrogram_dataset_from_tfrecords(files: list,
+                                       image_shape: tuple,
+                                       nclass: int,
+                                       batch_size: int = 1,
+                                       time_crop: float = 1.0,
+                                       random_time_crop: bool = False,
+                                       augment: bool = True,
+                                       augment_blend_prob: bool = 0.5,
+                                       augment_blend_strength: float = 0.5,
+                                       augment_mixup: bool = False,
+                                       augment_max_time_masks: int = 5,
+                                       augment_max_time_mask_size: float = 0.1,
+                                       augment_max_freq_masks: int = 5,
+                                       augment_max_freq_mask_size: float = 0.1,
+                                       augment_add_noise_prob: float = 0.0,
+                                       augment_add_noise_stds: float = 0.5,
+                                       augment_max_time_shift: float = 0.25,
+                                       augment_max_freq_shift: float = 0.05,
+                                       augment_max_contrast: float = 2.0,
+                                       shuffle: bool = True):
     ''' Prepares a tf.data.Dataset for generating spectrogram training data
     
     Args:
         files:                       list of paths to tfrecord files
-        image_shape:                 integer tuple of image shape: (height, width)
+        image_shape:                 integer tuple of spectrogram image shape: (frequency bins, time bins)
         batch_size:                  samples per batch
+        time_crop:                   if <1.0, spectrograms will be cropped in time to time_crop of their original width
         augment:                     whether to apply data augmentation
+        augment_blend_prob:          probability of blending a sample with another
+        augment_blend_strength:      strength of blended samples
+        augment_mixup:               whether to apply mixup augmentation; not recommended along with blending
         augment_max_time_masks:      max number of masks to apply in the time axis (https://arxiv.org/abs/1904.08779)
         augment_max_time_mask_size:  max desired mask width (fraction of total time)
         augment_max_freq_masks:      max number of masks to apply in the freq axis (https://arxiv.org/abs/1904.08779)
@@ -39,46 +49,89 @@ def make_spec_dataset(files: list,
         augment_max_time_shift:      max time shift (fraction of total time)
         augment_max_freq_shift:      max freq shift (fraction of total frequency range)
         augment_max_contrast:        max random contrast factor
-        shuffle:                     whether to shuffle training paths at each epoch end
-    '''
-    
+        shuffle:                     whether to shuffle dataset at each epoch end
+    '''    
     ds = tf.data.TFRecordDataset(files)
-    ds = ds.map(lambda x: _parse_tfrecord(x, image_shape))
-
+    if shuffle:
+        ds = ds.shuffle(100)
+    ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), num_parallel_calls=AUTO)
+        
+    time_crop = int(time_crop*image_shape[1])
+    if time_crop<image_shape[1]:
+        # center-crop the sample in time to time_crop times the original width
+        # doing this turns the results into a tensor with undefined time width, so some of the following operations
+        #     require the original image shape to be passed
+        ds = ds.map(lambda x, y: (_time_crop(x, time_crop, image_shape[1], random_time_crop), y), num_parallel_calls=AUTO)
+        
     if augment:
-        if augment_max_contrast>1:
-            ds = ds.map(lambda x, y: (random_contrast(x, augment_max_contrast), y))
+        
+        # blending
+        if augment_blend_prob>0:
+            ds = ds.batch(batch_size)
+            ds = ds.map(lambda x, y: blend(x, y, batch_size, augment_blend_prob, augment_blend_strength), num_parallel_calls=AUTO)
+            ds = ds.unbatch()
             
+        # mixup
+        if augment_mixup:
+            ds = ds.batch(batch_size)
+            ds = ds.map(lambda x, y: mixup(x, y, batch_size), num_parallel_calls=AUTO)
+            ds = ds.unbatch()
+
+        # random contrast
+        if augment_max_contrast>1:
+            ds = ds.map(lambda x, y: (random_contrast(x, augment_max_contrast), y), num_parallel_calls=AUTO)
+            
+        # add noise
+        if augment_add_noise_prob>0:
+            ds = ds.map(lambda x, y: (add_noise(x, 
+                                                augment_add_noise_prob,
+                                                augment_add_noise_stds), y), num_parallel_calls=AUTO)
+            
+        # time masks
         if augment_max_time_masks>0:
             ds = ds.map(lambda x, y: (time_mask(x,
-                                               augment_max_time_masks,
-                                               augment_max_time_mask_size), y))
+                                                augment_max_time_masks,
+                                                augment_max_time_mask_size), y), num_parallel_calls=AUTO)
+        # freq masks 
         if augment_max_freq_masks>0:
             ds = ds.map(lambda x, y: (freq_mask(x,
-                                               augment_max_freq_masks,
-                                               augment_max_freq_mask_size), y))
-
-        ds = ds.map(lambda x, y: (affine_transform(x,
-                                                  augment_max_time_shift,
-                                                  augment_max_freq_shift), y))
+                                                augment_max_freq_masks,
+                                                augment_max_freq_mask_size), y), num_parallel_calls=AUTO)
+        # affine time-freq shift
+        if (augment_max_time_shift>0) or (augment_max_freq_shift>0):
+            ds = ds.map(lambda x, y: (affine_transform(x,
+                                                       (image_shape[0], time_crop),
+                                                       augment_max_time_shift,
+                                                       augment_max_freq_shift), y), num_parallel_calls=AUTO)
                         
     return ds.batch(batch_size)
     
-        
-def _parse_tfrecord(example_proto, shape):
+    
+def _parse_tfrecord(example_proto, shape, nclass):
     feature = {
         'X': tf.io.FixedLenFeature(shape[0]*shape[1], tf.float32),
-        'Y': tf.io.FixedLenFeature([], tf.float32)
+        'Y': tf.io.FixedLenFeature(nclass, tf.float32)
     }
     features = tf.io.parse_example([example_proto], features=feature)
     features['X'] = tf.reshape(features['X'], shape)
+    features['Y'] = tf.squeeze(features['Y'])
     return features['X'], features['Y']
-                    
+       
+    
+def _time_crop(x, width, image_width, random):
+    if not random:
+        start = (image_width-width)//2
+        return x[..., start: (start+width)]
+    else:
+        start = tf.random.uniform([], 0, image_width-width, dtype=tf.int32)
+        return x[..., start: (start+width)]
+    
         
 def time_mask(x, maxmasks, maxwidth):
-    
+    ''' Apply time masks to a spectrogram
+    '''
     limit = tf.shape(x)[1]
-    for i in range(tf.random.uniform([], 0, maxmasks)):
+    for _ in range(tf.random.uniform([], 0, maxmasks)):
         f = tf.random.uniform(shape=(), minval=0, maxval=int(tf.cast(limit, tf.float32)*maxwidth), dtype=tf.dtypes.int32)
         f0 = tf.random.uniform(
             shape=(), minval=0, maxval=limit - f, dtype=tf.dtypes.int32
@@ -92,9 +145,10 @@ def time_mask(x, maxmasks, maxwidth):
 
 
 def freq_mask(x, maxmasks, maxwidth):
-    
+    ''' Apply frequency masks to a spectrogram
+    '''
     limit = tf.shape(x)[0]
-    for i in range(tf.random.uniform([], 0, maxmasks)):
+    for _ in range(tf.random.uniform([], 0, maxmasks)):
         f = tf.random.uniform(shape=(), minval=0, maxval=int(tf.cast(limit, tf.float32)*maxwidth), dtype=tf.dtypes.int32)
         f0 = tf.random.uniform(
             shape=(), minval=0, maxval=limit - f, dtype=tf.dtypes.int32
@@ -107,7 +161,7 @@ def freq_mask(x, maxmasks, maxwidth):
     return x
 
 
-def affine_transform(x: tf.Tensor, time_shift_percent: float=0.0, freq_shift_percent: float=0.0):
+def affine_transform(x: tf.Tensor, image_shape: tuple, time_shift_percent: float=0.0, freq_shift_percent: float=0.0):
     ''' Apply affine time/frequency shifting to a spectrogram
     
     Args:
@@ -115,13 +169,12 @@ def affine_transform(x: tf.Tensor, time_shift_percent: float=0.0, freq_shift_per
         time_shift_percent: fraction of total time indicating max possible time shift
         freq_shift_percent: fraction of total freq range indicating max possible freq shift
     '''
-    orig_shape = x.shape
     if time_shift_percent>0:
-        time_pad = tf.random.uniform([], 0, int(x.shape[1]*time_shift_percent), tf.int32)
+        time_pad = tf.random.uniform([], 0, int(image_shape[1]*time_shift_percent), tf.int32)
     else:
         time_pad = 0
     if freq_shift_percent>0:
-        freq_pad = tf.random.uniform([], 0, int(x.shape[0]*freq_shift_percent), tf.int32)
+        freq_pad = tf.random.uniform([], 0, int(image_shape[0]*freq_shift_percent), tf.int32)
     else:
         freq_pad = 0
     x = tf.pad(x, [[freq_pad, freq_pad], [time_pad, time_pad]], mode='CONSTANT', constant_values=tf.reduce_mean(x))
@@ -133,13 +186,96 @@ def affine_transform(x: tf.Tensor, time_shift_percent: float=0.0, freq_shift_per
         freq_shift = tf.random.uniform([], 0, int(freq_pad*2), tf.int32)
     else:
         freq_shift = 0
-    x = x[freq_shift:(freq_shift+orig_shape[0]), time_shift:(time_shift+orig_shape[1])] 
+    x = x[freq_shift:(freq_shift+image_shape[0]), time_shift:(time_shift+image_shape[1])] 
     return x
     
     
 def random_contrast(x, maxval):
+    ''' Randomly adjust image contrast
+    '''
     x = tf.image.random_contrast(tf.expand_dims(x, axis=0), 1, maxval)[0]
     return x
+
+
+def add_noise(x, prob, strength):
+    ''' Add Gaussian noise
+    '''
+    if tf.random.uniform([],0,1)<prob:
+        x = x + tf.clip_by_value(
+            tf.random.normal(tf.shape(x), 0, strength*tf.math.reduce_std(x)),
+            -strength*tf.math.reduce_std(x),
+            strength*tf.math.reduce_std(x)
+        )
+    return x
+
+
+def mixup(X: tf.Tensor, 
+          y: tf.Tensor,
+          batch_size: int):
+    """ Apply mix up augmentation to a batch of spectrograms
+    
+    Args:
+        X: batch input tensor
+        y: batch label tensor
+    Returns:
+        X: blended batch input tensor
+        y: blended batch label tensor
+    """
+    tf.debugging.assert_non_negative(tf.reduce_min(y), 
+                                     message='Error: mixup augmentation not yet compatible with unknown (-1) labels')
+    
+    toblend = tf.reshape(sample_beta_distribution(batch_size), (batch_size,1,1))
+    idxshuffle = tf.random.shuffle(tf.range(batch_size))
+    
+    X = X*(1-toblend) + tf.gather(X, idxshuffle, axis=0)*toblend
+    y = y*(1-toblend) + tf.gather(y, idxshuffle, axis=0)*toblend
+    
+    return X, y
+
+
+def blend(X: tf.Tensor, 
+          y: tf.Tensor,
+          batch_size: int,
+          prob: float=1.0, 
+          strength: float=0.5):
+    """ Apply blending augmentation to a batch of spectrograms
+    
+    Args:
+        X: batch input tensor
+        y: batch label tensor
+    Returns:
+        X: blended batch input tensor
+        y: blended batch label tensor
+    """
+    # binary vector of length batch_size indicating whether the sample will be blended
+    toblend = tf.where(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
+                       tf.ones_like((batch_size,)), 
+                       tf.zeros_like((batch_size,)))
+
+    # fill with gamma dist samples
+    toblend = tf.cast(toblend, tf.float32) * strength
+    idxshuffle = tf.random.shuffle(tf.range(batch_size))
+    X = X*(1-toblend) + tf.gather(X, idxshuffle, axis=0)*toblend
+
+    # combine labels
+    label = combine_labels(y, tf.gather(y, idxshuffle, axis=0))
+                     
+    return X, y
+
+
+def combine_labels(y1: tf.Tensor, y2: tf.Tensor):
+    """ Implements logic for combining multi-label vectors with compatibility for unknown labels represented by -1
+    """
+    y1 = tf.where(y1==1, tf.ones_like(y1)*2, y1)
+    y2 = tf.where(y2==1, tf.ones_like(y2)*2, y2)
+    y = y1+y2
+    return tf.clip_by_value(y, -1, 1)
+    
+
+def sample_beta_distribution(size, concentration_0=0.2, concentration_1=0.2):
+    gamma_1_sample = tf.random.gamma(shape=[size], alpha=concentration_1)
+    gamma_2_sample = tf.random.gamma(shape=[size], alpha=concentration_0)
+    return gamma_1_sample / (gamma_1_sample + gamma_2_sample)
 
 
 def get_files_and_label_map(data_dirs: list, 
@@ -157,6 +293,7 @@ def get_files_and_label_map(data_dirs: list,
         target_train:  desired number of training samples per class for resampling
         target_val:    desired number of validation samples per class for resampling
         ext:           suffix of files to collect
+        
     Returns:
         files_train:   list of training file paths
         files_val:     list of validation file paths
@@ -254,7 +391,7 @@ def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4):
         nc:    number of columns to plot
     '''
     plt.figure(figsize=(15,15))
-    for c in range(len(batch)):
+    for c in range(nr*nc):
         plt.subplot(nr,nc,c+1)
         plt.pcolormesh(batch[c].numpy())
         plt.clim([-100, 20])
@@ -264,17 +401,25 @@ def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4):
 def create_tfrecords(files: list,
                      labels: np.ndarray,
                      outdir: str,
-                     batch_size: int = 1000):
+                     batch_size: int = 1000,
+                     update: int = 1000):
     ''' Creates tfrecord files for batches of data
     
     Args:
-        files:    list of spectrogram files to store in tfrecords
-        labels:   label array with first dimension equal to the number of files
-        outdir:   directory to store the tfrecord files
+        files:      list of spectrogram files to store in tfrecords
+        labels:     label array with first dimension equal to the number of files
+        outdir:     directory to store the tfrecord files
+        batch_size: max number of samples per tfrecord file
+        
+    Returns:
+        tfrecord_files: list of tfrecord file paths
     '''
+    tfrecord_files = []
     if not outdir.endswith('/'):
         outdir+='/'
     for i in range(0, len(files), batch_size):
+        if i%update==0:
+            print(i)
         batch = []
         batch_labels = []
         for j in range(batch_size):
@@ -288,8 +433,11 @@ def create_tfrecords(files: list,
         batch_labels = np.vstack(batch_labels)
         np_to_tfrecords(batch, 
                         batch_labels, 
-                        outdir+'files_'+str(i)+'-'+str(np.min([len(files), i+batch_size]))+'.tfrecords')
+                        outdir+'files_'+str(i)+'-'+str(np.min([len(files), i+batch_size])))
+        tfrecord_files.append(outdir+'files_'+str(i)+'-'+str(np.min([len(files), i+batch_size]))+'.tfrec')
         
+    return tfrecord_files
+
                      
 def np_to_tfrecords(X, Y, file_path_prefix):
     '''
@@ -300,21 +448,19 @@ def np_to_tfrecords(X, Y, file_path_prefix):
     For unsupervised learning, only feed training inputs to X, and feed None to Y.
     The length of the first dimensions of X and Y should be the number of samples.
     
-    Parameters
-    ----------
-    X : numpy.ndarray of rank 2
-        Numpy array for training inputs. Its dtype should be float32, float64, or int64.
-        If X has a higher rank, it should be rshape before fed to this function.
-    Y : numpy.ndarray of rank 2 or None
-        Numpy array for training labels. Its dtype should be float32, float64, or int64.
-        None if there is no label array.
-    file_path_prefix : str
-        The path and name of the resulting tfrecord file to be generated, without '.tfrecords'
+    Args:
+        X : numpy.ndarray of rank 2
+            Numpy array for training inputs. Its dtype should be float32, float64, or int64.
+            If X has a higher rank, it should be rshape before fed to this function.
+        Y : numpy.ndarray of rank 2 or None
+            Numpy array for training labels. Its dtype should be float32, float64, or int64.
+            None if there is no label array.
+        file_path_prefix : str
+            The path and name of the resulting tfrecord file to be generated, without '.tfrecords'
     
-    Raises
-    ------
-    ValueError
-        If input type is not float (64 or 32) or int.
+    Raises:
+        ValueError
+            If input type is not float (64 or 32) or int.
     
     '''
     def _dtype_feature(ndarray):
@@ -341,7 +487,7 @@ def np_to_tfrecords(X, Y, file_path_prefix):
         assert len(Y.shape) == 2
         dtype_feature_y = _dtype_feature(Y)            
     
-    # Generate tfrecord writer
+    # Create tfrecord writer
     result_tf_file = file_path_prefix + '.tfrec'
     writer = tf.io.TFRecordWriter(result_tf_file)
         

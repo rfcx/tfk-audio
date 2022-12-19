@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorflow.keras.layers as layers
 from . import yamnet
 from ..dataprep import spec
+import tensorflow.keras.applications as imagenet_models
 
 
 class SpecLayer(tf.keras.layers.Layer):
