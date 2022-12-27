@@ -28,7 +28,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        augment_max_time_shift: float = 0.25,
                                        augment_max_freq_shift: float = 0.05,
                                        augment_max_contrast: float = 2.0,
-                                       shuffle: bool = True):
+                                       assume_negative_prob: float = 0.0):
     ''' Prepares a tf.data.Dataset for generating spectrogram training data
     
     Args:
@@ -49,19 +49,20 @@ def spectrogram_dataset_from_tfrecords(files: list,
         augment_max_time_shift:      max time shift (fraction of total time)
         augment_max_freq_shift:      max freq shift (fraction of total frequency range)
         augment_max_contrast:        max random contrast factor
-        shuffle:                     whether to shuffle dataset at each epoch end
+        assume_negative_prob:        probability of randomly setting a -1 label to 0
     '''    
-    ds = tf.data.TFRecordDataset(files)
-    if shuffle:
-        ds = ds.shuffle(100)
-    ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), num_parallel_calls=AUTO)
+    ds = tf.data.Dataset.from_tensor_slices(files) # list of tfrecord files
+    ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
+    ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=max(1, len(files)//100), block_length=1) # load tfrecords
+    ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), num_parallel_calls=AUTO) # parse records
+    ds = ds.shuffle(batch_size*2, reshuffle_each_iteration=True) # use buffer shuffling
         
-    time_crop = int(time_crop*image_shape[1])
-    if time_crop<image_shape[1]:
+    time_crop = int(time_crop*image_shape[0])
+    if time_crop<image_shape[0]:
         # center-crop the sample in time to time_crop times the original width
         # doing this turns the results into a tensor with undefined time width, so some of the following operations
         #     require the original image shape to be passed
-        ds = ds.map(lambda x, y: (_time_crop(x, time_crop, image_shape[1], random_time_crop), y), num_parallel_calls=AUTO)
+        ds = ds.map(lambda x, y: (_time_crop(x, time_crop, image_shape[0], random_time_crop), y), num_parallel_calls=AUTO)
         
     if augment:
         
@@ -100,11 +101,14 @@ def spectrogram_dataset_from_tfrecords(files: list,
         # affine time-freq shift
         if (augment_max_time_shift>0) or (augment_max_freq_shift>0):
             ds = ds.map(lambda x, y: (affine_transform(x,
-                                                       (image_shape[0], time_crop),
+                                                       (time_crop, image_shape[1]),
                                                        augment_max_time_shift,
                                                        augment_max_freq_shift), y), num_parallel_calls=AUTO)
-                        
-    return ds.batch(batch_size)
+    
+    if assume_negative_prob>0:
+        ds = ds.map(lambda x, y: (x, assume_negative(y, (nclass,), assume_negative_prob)))
+
+    return ds.batch(batch_size).shuffle(5, reshuffle_each_iteration=True) # batch and shuffle batches
     
     
 def _parse_tfrecord(example_proto, shape, nclass):
@@ -121,17 +125,17 @@ def _parse_tfrecord(example_proto, shape, nclass):
 def _time_crop(x, width, image_width, random):
     if not random:
         start = (image_width-width)//2
-        return x[..., start: (start+width)]
+        return x[..., start: (start+width), :]
     else:
         start = tf.random.uniform([], 0, image_width-width, dtype=tf.int32)
-        return x[..., start: (start+width)]
+        return x[..., start: (start+width), :]
     
         
-def time_mask(x, maxmasks, maxwidth):
+def freq_mask(x, maxmasks, maxwidth):
     ''' Apply time masks to a spectrogram
     '''
     limit = tf.shape(x)[1]
-    for _ in range(tf.random.uniform([], 0, maxmasks)):
+    for _ in range(tf.random.uniform([], 0, maxmasks+1, dtype=tf.int32)):
         f = tf.random.uniform(shape=(), minval=0, maxval=int(tf.cast(limit, tf.float32)*maxwidth), dtype=tf.dtypes.int32)
         f0 = tf.random.uniform(
             shape=(), minval=0, maxval=limit - f, dtype=tf.dtypes.int32
@@ -144,11 +148,11 @@ def time_mask(x, maxmasks, maxwidth):
     return x
 
 
-def freq_mask(x, maxmasks, maxwidth):
+def time_mask(x, maxmasks, maxwidth):
     ''' Apply frequency masks to a spectrogram
     '''
     limit = tf.shape(x)[0]
-    for _ in range(tf.random.uniform([], 0, maxmasks)):
+    for _ in range(tf.random.uniform([], 0, maxmasks+1, dtype=tf.int32)):
         f = tf.random.uniform(shape=(), minval=0, maxval=int(tf.cast(limit, tf.float32)*maxwidth), dtype=tf.dtypes.int32)
         f0 = tf.random.uniform(
             shape=(), minval=0, maxval=limit - f, dtype=tf.dtypes.int32
@@ -170,14 +174,14 @@ def affine_transform(x: tf.Tensor, image_shape: tuple, time_shift_percent: float
         freq_shift_percent: fraction of total freq range indicating max possible freq shift
     '''
     if time_shift_percent>0:
-        time_pad = tf.random.uniform([], 0, int(image_shape[1]*time_shift_percent), tf.int32)
+        time_pad = tf.random.uniform([], 0, int(image_shape[0]*time_shift_percent), tf.int32)
     else:
         time_pad = 0
     if freq_shift_percent>0:
-        freq_pad = tf.random.uniform([], 0, int(image_shape[0]*freq_shift_percent), tf.int32)
+        freq_pad = tf.random.uniform([], 0, int(image_shape[1]*freq_shift_percent), tf.int32)
     else:
         freq_pad = 0
-    x = tf.pad(x, [[freq_pad, freq_pad], [time_pad, time_pad]], mode='CONSTANT', constant_values=tf.reduce_mean(x))
+    x = tf.pad(x, [[time_pad, time_pad], [freq_pad, freq_pad]], mode='CONSTANT', constant_values=tf.reduce_mean(x))
     if time_pad>0:
         time_shift = tf.random.uniform([], 0, int(time_pad*2), tf.int32)
     else:
@@ -186,7 +190,7 @@ def affine_transform(x: tf.Tensor, image_shape: tuple, time_shift_percent: float
         freq_shift = tf.random.uniform([], 0, int(freq_pad*2), tf.int32)
     else:
         freq_shift = 0
-    x = x[freq_shift:(freq_shift+image_shape[0]), time_shift:(time_shift+image_shape[1])] 
+    x = x[time_shift:(time_shift+image_shape[0]), freq_shift:(freq_shift+image_shape[1])] 
     return x
     
     
@@ -224,7 +228,7 @@ def mixup(X: tf.Tensor,
     tf.debugging.assert_non_negative(tf.reduce_min(y), 
                                      message='Error: mixup augmentation not yet compatible with unknown (-1) labels')
     
-    toblend = tf.reshape(sample_beta_distribution(batch_size), (batch_size,1,1))
+    toblend = tf.reshape(beta_dist(batch_size), (batch_size,1,1))
     idxshuffle = tf.random.shuffle(tf.range(batch_size))
     
     X = X*(1-toblend) + tf.gather(X, idxshuffle, axis=0)*toblend
@@ -251,8 +255,6 @@ def blend(X: tf.Tensor,
     toblend = tf.where(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
                        tf.ones_like((batch_size,)), 
                        tf.zeros_like((batch_size,)))
-
-    # fill with gamma dist samples
     toblend = tf.cast(toblend, tf.float32) * strength
     idxshuffle = tf.random.shuffle(tf.range(batch_size))
     X = X*(1-toblend) + tf.gather(X, idxshuffle, axis=0)*toblend
@@ -272,10 +274,17 @@ def combine_labels(y1: tf.Tensor, y2: tf.Tensor):
     return tf.clip_by_value(y, -1, 1)
     
 
-def sample_beta_distribution(size, concentration_0=0.2, concentration_1=0.2):
+def beta_dist(size, concentration_0=0.2, concentration_1=0.2):
     gamma_1_sample = tf.random.gamma(shape=[size], alpha=concentration_1)
     gamma_2_sample = tf.random.gamma(shape=[size], alpha=concentration_0)
     return gamma_1_sample / (gamma_1_sample + gamma_2_sample)
+                                  
+                                  
+def assume_negative(y, shape, prob=0.25):
+    ''' Sets -1 labelst to 0 with some probability
+    '''
+    assumptions = tf.where(tf.random.uniform(shape, 0, 1)<=prob, tf.zeros_like(shape), tf.ones_like(shape)*-1)
+    return tf.where(y==-1, tf.cast(assumptions, tf.float32), y)
 
 
 def get_files_and_label_map(data_dirs: list, 
@@ -393,7 +402,7 @@ def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4):
     plt.figure(figsize=(15,15))
     for c in range(nr*nc):
         plt.subplot(nr,nc,c+1)
-        plt.pcolormesh(batch[c].numpy())
+        plt.pcolormesh(batch[c].numpy().T)
         plt.clim([-100, 20])
         plt.axis('off') 
         
@@ -402,6 +411,7 @@ def create_tfrecords(files: list,
                      labels: np.ndarray,
                      outdir: str,
                      batch_size: int = 1000,
+                     overwrite: bool = True,
                      update: int = 1000):
     ''' Creates tfrecord files for batches of data
     
@@ -417,9 +427,19 @@ def create_tfrecords(files: list,
     tfrecord_files = []
     if not outdir.endswith('/'):
         outdir+='/'
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    for i in os.listdir(outdir):
+        if i.endswith('.tfrec'):
+            if overwrite:
+                os.remove(outdir+i)
     for i in range(0, len(files), batch_size):
         if i%update==0:
             print(i)
+        if not overwrite:
+            if os.path.exists(outdir+'files_'+str(i)+'-'+str(np.min([len(files), i+batch_size]))+'.tfrec'):
+                tfrecord_files.append(outdir+'files_'+str(i)+'-'+str(np.min([len(files), i+batch_size]))+'.tfrec')
+                continue
         batch = []
         batch_labels = []
         for j in range(batch_size):

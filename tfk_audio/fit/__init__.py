@@ -1,3 +1,4 @@
 from . import models
 from . import datagen
-from . import loss
+from . import losses
+from .labels import *

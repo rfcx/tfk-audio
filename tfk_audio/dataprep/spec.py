@@ -16,7 +16,7 @@ class SpecGenerator():
                  min_hz=None,
                  max_hz=None,
                  db_scale=True,
-                 db_limits=(None,None),
+                 db_limits=(-100,20),
                  mel_bands=None,
                  tflite_compatible=True,
                  sample_seconds=3.0):
@@ -59,7 +59,7 @@ class SpecGenerator():
             self.num_frequency_bins = self.mel_bands
         else:
             self.num_frequency_bins = self.fft_length // 2 + 1
-        self.image_shape = (self.num_frequency_bins, self.sample_width)
+        self.image_shape = (self.sample_width, self.num_frequency_bins)
         self.tflite_compatible = tflite_compatible
         self._spec_file_sig = '_spec.npy'
         self._processed_files = set()
@@ -92,7 +92,7 @@ class SpecGenerator():
             spec = self.crop(spec)
         if self.db_scale:
             spec = self.apply_db_scale(spec, self.db_limits)
-        spec = tf.transpose(spec) # [<# frequency bands>, <# time frames>]
+        # [<# time frames>, <# frequency bands>]
             
         return spec
     
@@ -166,6 +166,8 @@ class SpecGenerator():
                         files_to_process.append(os.path.join(root, name))
         if overwrite:
             files_to_process = files_total
+        for i in list(set(files_total).difference(files_to_process)):
+            self._processed_files.add(i+self._spec_file_sig)
         print('Audio files found:',len(files_total))
         print('Spectrogram files found:',len(files_total)-len(files_to_process))
         print('To process:',len(files_to_process))
@@ -207,6 +209,8 @@ class SpecGenerator():
                 spec = self.wav_to_spec(tmp)
             elif len(np.shape(tmp))==2:
                 spec = tmp
+        spec = tf.transpose(spec) # [<# frequency bands>, <# time frames>]
+
         plt.figure(figsize=(5,4))
         plt.pcolormesh(spec);
         for i in range(2):
@@ -238,6 +242,7 @@ class SpecGenerator():
         for c,i in enumerate(list(tmp)[:(nr*nc)]):
             plt.subplot(nr,nc,c+1)
             spec = np.load(i)
+            spec = tf.transpose(spec) # [<# frequency bands>, <# time frames>]
             plt.pcolormesh(spec);
             for i in range(2):
                 if not self.db_limits[i] is None:
@@ -250,7 +255,7 @@ class SpecGenerator():
         '''
         width = int((input_seconds)/self.stft_hop_seconds-\
                     (self.stft_window_seconds/self.stft_hop_seconds)+1)
-        return (self.num_frequency_bins, width)
+        return (width, self.num_frequency_bins)
 
             
 def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):

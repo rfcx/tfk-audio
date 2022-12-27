@@ -66,7 +66,14 @@ class ImageNetModel(tf.keras.Model):
         else:
             self.call = self.call_spec
             self.build(input_shape=(None, *self._input_shape))
-                
+            
+    def prepare_spec(self, x):
+        x = tf.expand_dims(x, axis=-1)
+        x = tf.repeat(x, 3, axis=-1)
+        x = tf.image.resize(x, (224, 224))
+        x = tf.image.per_image_standardization(x)
+        return x
+    
     def call_spec(self, x, training=False):
         x = tf.expand_dims(x, axis=-1)
         x = tf.repeat(x, 3, axis=-1)
