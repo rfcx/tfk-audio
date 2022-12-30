@@ -5,134 +5,110 @@ from ..dataprep import spec
 import tensorflow.keras.applications as imagenet_models
 
 
-class SpecLayer(tf.keras.layers.Layer):
-    '''Tensorflow Keras layer for implementing spectrogram conversion with a SpecGenerator object
+def imagenet_audio_model(backbone, num_classes, specgenerator, hop_seconds=1.0):
+    ''' Creates a Tensorflow model for predicting on audio waveforms
+    
+    Args:
+        backbone:        imagenet model backbone, from tf.keras.applications
+        num_classes:     number of classes
+        specgenerator:   tfk.dataprep.spec.SpecGenerator object
+        hop_seconds:     number of seconds between predictions
+    Returns
+        A Tensorflow model
     '''
-    def __init__(self,
-                 specgen):
-        super().__init__()
-        self.specgen = specgen
+    scale_factor = 224/specgenerator.sample_width
     
-    def call(self, x):
-        x = self.specgen.wav_to_spec(x)
-        return x 
+    conv = backbone(weights='imagenet', include_top=False, input_shape=[224, 224, 3])
+    for layer in conv.layers:
+        layer.trainable = True
+        
+    specparams = {k:v for (k,v) in specgenerator.__dict__.items() if k!='_processed_files'}
+        
+    inputs = layers.Input(batch_shape=(1,None,))    
+    x = layers.Lambda(
+            lambda x: spec._wav_to_spec(x[0,],
+                                        sample_rate = specparams['sample_rate'],
+                                        stft_window_samples = specparams['stft_window_samples'],
+                                        stft_hop_samples = specparams['stft_hop_samples'],
+                                        fft_length = specparams['fft_length'],
+                                        mel_bands = specparams['mel_bands'],
+                                        min_hz = specparams['min_hz'],
+                                        max_hz = specparams['max_hz'],
+                                        db_scale = specparams['db_scale'],
+                                        db_limits = specparams['db_limits'],
+                                        tflite_compatible = specparams['tflite_compatible']
+                                        ),
+            name='spec1'
+        )(inputs)
+    x = layers.Lambda(
+            lambda x: tf.expand_dims(x, axis=-1),
+            name='expand1'
+        )(x)
+    x = layers.Lambda(
+            lambda x: tf.image.resize(x, (tf.cast(tf.shape(x)[0], tf.float32)*scale_factor, 224)),
+            name='resize1'
+        )(x)
+    x = layers.Lambda(
+            lambda x: tf.keras.backend.repeat_elements(x=x, rep=3, axis=-1),
+            name='repeat1'
+        )(x)
+    x = layers.Lambda(
+            lambda x: tf.image.per_image_standardization(x),
+            name='norm1'
+        )(x)
+    x = layers.Lambda(
+            lambda x: tf.signal.frame(x,
+                                     frame_length=224,
+                                     frame_step=int(round(hop_seconds * \
+                                                          specparams['second_width'] * \
+                                                          scale_factor)),
+                                     axis=0),
+            name='frame1'
+        )(x)
+    x = conv(x)
+    x = layers.AveragePooling2D((7, 7))(x)
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(num_classes, activation='sigmoid')(x)
     
-class ImageNetModel(tf.keras.Model):
-    '''Tensorflow Keras model class for implementing pre-trained ImageNet models for audio recognition
+    return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+
+    
+def imagenet_spec_model(backbone, num_classes, input_shape):
+    ''' Creates a Tensorflow model for predicting on spectrograms
+    
+    Args:
+        backbone:        imagenet model backbone, from tf.keras.applications
+        num_classes:     number of classes
+        input_shape:     input spectrogram (height, width)
+    Returns
+        A Tensorflow model
     '''
-    def __init__(self, 
-                 backbone, 
-                 num_classes,
-                 input_shape,
-                 wav_input=False,
-                 specgen=None,
-                 hop_seconds=1.0): 
-        super().__init__()
-        
-        # net
-        self.backbone = backbone
-        self.num_classes = num_classes
-        self._input_shape = input_shape
-        
-        # preprocessing
-        self.wav_input = wav_input
-        self.specgen = specgen
-        self.spec_layer = None
-        self.scale_factor = None
-        if self.specgen is not None:
-            self.spec_layer = SpecLayer(self.specgen)
-            # imagenet 224 compared to the raw spectrogram sample width
-            self.scale_factor = 224/self.spec_layer.specgen.sample_width
-        
-        # prediction
-        self._hop_seconds = hop_seconds
-        
-        self._build()
+    conv = backbone(weights='imagenet', include_top=False, input_shape=[224, 224, 3])
+    for layer in conv.layers:
+        layer.trainable = True
+    
+    inputs = layers.Input(input_shape)
+    x = layers.Reshape(target_shape=(*input_shape, 1))(inputs)
+    x = layers.Lambda(
+            lambda x: tf.image.resize(x, (224, 224)),
+            name='resize1'
+        )(x)
+    x = layers.Lambda(
+            lambda x: tf.keras.backend.repeat_elements(x=x, rep=3, axis=3)
+        )(x)
+    x = layers.Lambda(
+            lambda x: tf.image.per_image_standardization(x)
+        )(x)
+    x = conv(x)
+    x = layers.AveragePooling2D((7, 7))(x)
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(num_classes, activation='sigmoid')(x)
+    
+    return tf.keras.models.Model(inputs=inputs, outputs=outputs)
 
-    def _build(self):        
-        conv = self.backbone(weights='imagenet',
-                             include_top=False,
-                             input_shape=[224, 224, 3])
-        for layer in conv.layers:
-            layer.trainable = True
-        self.conv1 = conv
-        self.avgpool1 = layers.AveragePooling2D((7, 7))
-        self.flatten1 = layers.Flatten()
-        self.dropout1 = layers.Dropout(0.5)
-        self.dense1 = layers.Dense(self.num_classes, activation='sigmoid')
-        if self.wav_input:
-            self.call = self.call_wav
-            self.build(input_shape=(1, None,))
-        else:
-            self.call = self.call_spec
-            self.build(input_shape=(None, *self._input_shape))
-            
-    def prepare_spec(self, x):
-        x = tf.expand_dims(x, axis=-1)
-        x = tf.repeat(x, 3, axis=-1)
-        x = tf.image.resize(x, (224, 224))
-        x = tf.image.per_image_standardization(x)
-        return x
-    
-    def call_spec(self, x, training=False):
-        x = tf.expand_dims(x, axis=-1)
-        x = tf.repeat(x, 3, axis=-1)
-        x = tf.image.resize(x, (224, 224))
-        x = tf.image.per_image_standardization(x)
-        x = self.conv1(x)
-        x = self.avgpool1(x)
-        x = self.flatten1(x)
-        x = self.dropout1(x, training=training)
-        return self.dense1(x)
-    
-    def call_wav(self, x, training=False):
-        x = self.spec_layer(x[0])
-        x = tf.expand_dims(x, axis=-1)
-        x = tf.repeat(x, 3, axis=-1)
-        x = tf.image.resize(x, (224, tf.cast(tf.shape(x)[1], tf.float32)*self.scale_factor))
-        x = tf.image.per_image_standardization(x)
-        x = tf.signal.frame(x,
-                            frame_length=224,
-                            frame_step=int(round(self._hop_seconds * \
-                                                 self.spec_layer.specgen.second_width * \
-                                                 self.scale_factor)),
-                            axis=1)
-        x = tf.transpose(x, (1,0,2,3))
-        x = self.conv1(x)
-        x = self.avgpool1(x)
-        x = self.flatten1(x)
-        x = self.dropout1(x, training=training)
-        return self.dense1(x)
-    
-    def set_wav_input(self, wav_input, specgen=None):
-        if (specgen is None) and (self.specgen is not None):
-            specgen = self.specgen
-        assert specgen is not None, 'Error: No SpecGenerator found.'            
-        self.__init__(backbone=self.backbone, 
-                      num_classes=self.num_classes, 
-                      wav_input=wav_input, 
-                      input_shape=self._input_shape,
-                      specgen=specgen,
-                      hop_seconds=self.hop_seconds)
-        
-    @property
-    def hop_seconds(self):
-        return self._hop_seconds
-    
-    @hop_seconds.setter
-    def hop_seconds(self, seconds):
-        self._hop_seconds = seconds
-        self.make_predict_function(force=True)
-        
-    def summary(self):
-        if self.wav_input:
-            x = layers.Input(batch_shape=(1, None,))
-        else:
-            x = layers.Input(batch_shape=(None, *self._input_shape))
-        model = tf.keras.Model(inputs=x, outputs=self.call(x))
-        return model.summary()
-
-
+                               
     
     
     

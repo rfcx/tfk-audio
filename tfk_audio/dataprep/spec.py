@@ -1,10 +1,12 @@
 import os
+import json
 import random
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from . import audio
 import matplotlib.pyplot as plt
+
 
 class SpecGenerator():
     ''' Tensorflow-compatible spectrogram data handler
@@ -63,38 +65,29 @@ class SpecGenerator():
         self.tflite_compatible = tflite_compatible
         self._spec_file_sig = '_spec.npy'
         self._processed_files = set()
-        
+
     def wav_to_spec(self, waveform):
         '''Converts a 1-D waveform into a spectrogram
-        
+
         Args:
-            waveform: [<# samples>,]
+            waveform:               [<# samples>,]
+            
         Returns:
             spec: [<# frequency bins>, <# time frames>]
         '''
         if type(waveform)==str:
-            waveform, _ = audio.load(waveform, self.sample_rate)
-        if self.tflite_compatible:
-            spec = _tflite_stft_magnitude(
-                signal=waveform,
-                frame_length=self.stft_window_samples,
-                frame_step=self.stft_hop_samples,
-                fft_length=self.fft_length)
-        else:
-            spec = tf.abs(tf.signal.stft(
-                signal=waveform,
-                frame_length=self.stft_window_samples,
-                frame_step=self.stft_hop_samples,
-                fft_length=self.fft_length))
-        if self.mel_bands is not None and self.mel_bands>0:
-            spec = self.apply_mel_scale(spec)
-        else:
-            spec = self.crop(spec)
-        if self.db_scale:
-            spec = self.apply_db_scale(spec, self.db_limits)
-        # [<# time frames>, <# frequency bands>]
-            
-        return spec
+            waveform, _ = audio.load(waveform, sample_rate)
+        return _wav_to_spec(waveform,
+                            sample_rate = self.sample_rate,
+                            stft_window_samples = self.stft_window_samples,
+                            stft_hop_samples = self.stft_hop_samples,
+                            min_hz = self.min_hz,
+                            max_hz = self.max_hz,
+                            fft_length = self.fft_length,
+                            db_limits = self.db_limits,
+                            db_scale = self.db_scale,
+                            mel_bands = self.mel_bands,
+                            tflite_compatible = self.tflite_compatible)
     
     def save_spec(self, audio_path):
         ''' Saves a spectrogram file
@@ -107,44 +100,6 @@ class SpecGenerator():
         if count%update==0:
             print(count)
         self._processed_files.add(path+self._spec_file_sig)
-    
-    def crop(self, spec):
-        '''Crop a spectrogram to frequency range
-        
-        Args:
-            spec: [<# time frames>, <# frequency bands>]
-        '''
-        linear_frequencies = math_ops.linspace(0.0, self.sample_rate/2.0, self.num_frequency_bins)
-        idx_min = tf.squeeze(tf.where(linear_frequencies>=self.min_hz))[0]
-        idx_max = tf.squeeze(tf.where(linear_frequencies<=self.max_hz))[-1]+1
-        return spec[...,idx_min:idx_max]
-    
-    def apply_mel_scale(self, spec):
-        '''Converts a linear spectrogram into a mel-scaled spectrogram
-        Args:
-            spec: array with shape [<# time frames>, <# frequency bands>]
-        Returns:
-            mel_spectrogram: spectrogram with shape [<# time frames>, <# frequency bands>]
-        '''
-        # Convert spectrogram into mel spectrogram.
-        linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
-            num_mel_bins=self.mel_bands,
-            num_spectrogram_bins=spec.shape[1],
-            sample_rate=self.sample_rate,
-            lower_edge_hertz=self.min_hz,
-            upper_edge_hertz=self.max_hz)
-        mel_spectrogram = tf.matmul(spec, linear_to_mel_weight_matrix)
-        return mel_spectrogram
-    
-    def apply_db_scale(self, spec, db_limits=[None, None]):
-        ''' Apply db scaling to spectrogram amplitudes
-        '''
-        spec = 10*tf.math.log(spec)
-        if db_limits[0] is None:
-            db_limits = (tf.math.reduce_min(spec), db_limits[1])
-        if db_limits[1] is None:
-            db_limits = (db_limits[0], tf.math.reduce_max(spec))    
-        return tf.clip_by_value(spec, db_limits[0], db_limits[1])
     
     def process_folder(self, folder, ext='.wav', overwrite=True, update=100, limit=None):
         '''Generates a spectrogram file for each audio file in a directory
@@ -256,6 +211,118 @@ class SpecGenerator():
         width = int((input_seconds)/self.stft_hop_seconds-\
                     (self.stft_window_seconds/self.stft_hop_seconds)+1)
         return (width, self.num_frequency_bins)
+    
+    def to_json(self, filename):
+        with open(filename, 'w') as f:
+            json.dump({k:v for (k,v) in self.__dict__.items() if k!='_processed_files'}, f, sort_keys=True, indent=4)
+    
+    def from_json(self, filename):
+        config = json.load(open(filename, 'r'))
+        for key in config:
+            setattr(self, key, config[key])
+        self._processed_files = set()
+        
+#     def _process_batch(self, batch):
+#         return tf.map_fn(lambda x: self.wav_to_spec(x), elems=(batch))
+
+    
+def _wav_to_spec(waveform, 
+                 sample_rate, 
+                 stft_window_samples, 
+                 stft_hop_samples, 
+                 min_hz,
+                 max_hz,
+                 fft_length, 
+                 db_scale,
+                 db_limits,
+                 mel_bands,
+                 tflite_compatible):
+    '''Converts a 1-D waveform into a spectrogram
+
+    Args:
+        waveform:               [<# samples>,]
+        sample_rate:            target sample rate of processed audio
+        stft_window_seconds:    seconds of audio processed in each STFT frame
+        stft_hop_seconds:       seconds shifted between STFT frames
+        min_hz:                 target min hz of computed spectrograms
+        max_hz:                 target max hz of computed spectrograms
+        fft_length:             number of Fourier coefficients to compute
+        db_scale:               whether to apply dB scaling to amplitudes
+        db_limits:              dB values will be clipped within this range
+        mel_bands:              number of mel bands to apply
+        tflite_compatible:      if True will use a tflite-compatible STFT operation
+    Returns:
+        spec: [<# frequency bins>, <# time frames>]
+    '''
+    if tflite_compatible:
+        spec = _tflite_stft_magnitude(
+            signal=waveform,
+            frame_length=stft_window_samples,
+            frame_step=stft_hop_samples,
+            fft_length=fft_length)
+    else:
+        spec = tf.abs(tf.signal.stft(
+            signal=waveform,
+            frame_length=stft_window_samples,
+            frame_step=stft_hop_samples,
+            fft_length=fft_length))
+    if mel_bands is not None and mel_bands>0:
+        spec = _apply_mel_scale(spec,
+                                mel_bands,
+                                sample_rate,
+                                min_hz,
+                                max_hz)
+    else:
+        spec = _crop(spec, 
+                     sample_rate, 
+                     fft_length // 2 + 1,
+                     min_hz,
+                     max_hz)
+    if db_scale:
+        spec = _apply_db_scale(spec, db_limits)
+    return spec
+    # [<# time frames>, <# frequency bands>]
+
+        
+def _crop(spec, sample_rate, num_frequency_bins, min_hz, max_hz):
+    '''Crop a spectrogram to frequency range
+
+    Args:
+        spec: [<# time frames>, <# frequency bands>]
+    '''
+    linear_frequencies = math_ops.linspace(0.0, sample_rate/2.0, num_frequency_bins)
+    idx_min = tf.squeeze(tf.where(linear_frequencies>=min_hz))[0]
+    idx_max = tf.squeeze(tf.where(linear_frequencies<=max_hz))[-1]+1
+    return spec[...,idx_min:idx_max]
+
+
+def _apply_mel_scale(spec, mel_bands, sample_rate, min_hz, max_hz):
+    '''Converts a linear spectrogram into a mel-scaled spectrogram
+    Args:
+        spec: array with shape [<# time frames>, <# frequency bands>]
+    Returns:
+        mel_spectrogram: spectrogram with shape [<# time frames>, <# frequency bands>]
+    '''
+    # Convert spectrogram into mel spectrogram.
+    linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
+        num_mel_bins=mel_bands,
+        num_spectrogram_bins=spec.shape[1],
+        sample_rate=sample_rate,
+        lower_edge_hertz=min_hz,
+        upper_edge_hertz=max_hz)
+    mel_spectrogram = tf.matmul(spec, linear_to_mel_weight_matrix)
+    return mel_spectrogram
+
+
+def _apply_db_scale(spec, db_limits=[None, None]):
+    ''' Apply db scaling to spectrogram amplitudes
+    '''
+    spec = 10*tf.math.log(spec)
+    if db_limits[0] is None:
+        db_limits = (tf.math.reduce_min(spec), db_limits[1])
+    if db_limits[1] is None:
+        db_limits = (db_limits[0], tf.math.reduce_max(spec))    
+    return tf.clip_by_value(spec, db_limits[0], db_limits[1])
 
             
 def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):
