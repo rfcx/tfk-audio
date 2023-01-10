@@ -76,7 +76,7 @@ class SpecGenerator():
             spec: [<# frequency bins>, <# time frames>]
         '''
         if type(waveform)==str:
-            waveform, _ = audio.load_wav(waveform, sample_rate)
+            waveform, _ = audio.load_wav(waveform, self.sample_rate)
         return _wav_to_spec(waveform,
                             sample_rate = self.sample_rate,
                             stft_window_samples = self.stft_window_samples,
