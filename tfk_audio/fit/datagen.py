@@ -53,6 +53,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
     '''    
     ds = tf.data.Dataset.from_tensor_slices(files) # list of tfrecord files
     ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
+    ds = ds.repeat()
     ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=max(1, len(files)//100), block_length=1) # load tfrecords
     ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), num_parallel_calls=AUTO) # parse records
     ds = ds.shuffle(batch_size*2, reshuffle_each_iteration=True) # use buffer shuffling
@@ -292,7 +293,8 @@ def get_files_and_label_map(data_dirs: list,
                             classes: Optional[list]=None, 
                             target_train: Optional[int]=None, 
                             target_val: Optional[int]=None, 
-                            ext: str='_spec.npy'):
+                            ext: str='_spec.npy',
+                            random_state: Optional[int]=None):
     ''' Prepares train/val path lists and a label dictionary
 
     Args:
@@ -346,7 +348,8 @@ def get_files_and_label_map(data_dirs: list,
                 tmp_val=[]
             else:
                 tmp_train, tmp_val = train_test_split(tmp,
-                                                      train_size=train_split)
+                                                      train_size=train_split,
+                                                      random_state=random_state)
             class_train += tmp_train
             class_val += tmp_val
             
@@ -527,6 +530,8 @@ def np_to_tfrecords(X, Y, file_path_prefix):
         example = tf.train.Example(features=features)
         serialized = example.SerializeToString()
         writer.write(serialized)
+    
+    writer.close()
         
 
 

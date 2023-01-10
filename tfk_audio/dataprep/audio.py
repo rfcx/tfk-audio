@@ -4,7 +4,7 @@ import tensorflow as tf
 from ffmpy import FFmpeg, FFRuntimeError
 
 
-def load(path, sr=None, numpy=False):
+def load_wav(path, sr=None, numpy=False):
     '''Loads a .wav file
     
     Args:

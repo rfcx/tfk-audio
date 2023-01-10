@@ -76,7 +76,7 @@ class SpecGenerator():
             spec: [<# frequency bins>, <# time frames>]
         '''
         if type(waveform)==str:
-            waveform, _ = audio.load(waveform, sample_rate)
+            waveform, _ = audio.load_wav(waveform, sample_rate)
         return _wav_to_spec(waveform,
                             sample_rate = self.sample_rate,
                             stft_window_samples = self.stft_window_samples,
@@ -153,7 +153,7 @@ class SpecGenerator():
                 spec = np.load(tmp)
             else:
                 try:
-                    wav, sr = audio.load(tmp, self.sample_rate)
+                    wav, sr = audio.load_wav(tmp, self.sample_rate)
                     spec = self.wav_to_spec(wav)
                 except Exception as e:
                     print(e)
@@ -223,6 +223,10 @@ class SpecGenerator():
         self._processed_files = set()
         
 #     def _process_batch(self, batch):
+#         ''' Attempt at allowing >1 batch size for audio models
+#
+#             One option is to predefine the input waveform length and pad everything to it
+#         '''
 #         return tf.map_fn(lambda x: self.wav_to_spec(x), elems=(batch))
 
     
@@ -238,6 +242,8 @@ def _wav_to_spec(waveform,
                  mel_bands,
                  tflite_compatible):
     '''Converts a 1-D waveform into a spectrogram
+    
+    Separating this function from the SpecGenerator class makes it serializable for audio model layers
 
     Args:
         waveform:               [<# samples>,]

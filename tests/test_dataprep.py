@@ -10,7 +10,7 @@ specgen = dataprep.spec.SpecGenerator(sample_rate=16000,
                                           db_limits=(None, None))
 
 # process a single file
-wav, sr = dataprep.audio.load('data/example1.wav')
+wav, sr = dataprep.audio.load_wav('data/example1.wav')
 spec = specgen.wav_to_spec(wav)
 
 # process all .wav files in a folder

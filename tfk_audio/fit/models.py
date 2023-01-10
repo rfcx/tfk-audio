@@ -15,15 +15,14 @@ def imagenet_audio_model(backbone, num_classes, specgenerator, hop_seconds=1.0):
         hop_seconds:     number of seconds between predictions
     Returns
         A Tensorflow model
-    '''
-    scale_factor = 224/specgenerator.sample_width
-    
+    '''    
     conv = backbone(weights='imagenet', include_top=False, input_shape=[224, 224, 3])
     for layer in conv.layers:
         layer.trainable = True
         
     specparams = {k:v for (k,v) in specgenerator.__dict__.items() if k!='_processed_files'}
-        
+    scale_factor = 224/specparams['sample_width']
+
     inputs = layers.Input(batch_shape=(1,None,))    
     x = layers.Lambda(
             lambda x: spec._wav_to_spec(x[0,],

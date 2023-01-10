@@ -12,7 +12,7 @@ Audio and spectrogram handling, e.g.::
     from tfk_audio import dataprep
     
     # load audio
-    wav, sr = dataprep.audio.load('example.wav')
+    wav, sr = dataprep.audio.load_wav('example.wav')
     
     # load spectrogram
     specgen = dataprep.spec.SpecGenerator(sample_rate = sr,
