@@ -2,6 +2,21 @@ tfk-audio
 ================
 **T**\ ensor\ **F**\ low **K**\ eras Audio
 
+Install
+----------------
+
+pip -r requirements.txt
+
+Make sure to have ffmpeg installed:
+
+Debian/Ubuntu:
+sudo apt install ffmpeg
+
+or 
+
+Mac OS
+brew install ffmpeg
+
 Submodules
 ----------------
 
