@@ -5,16 +5,16 @@ tfk-audio
 Install
 ----------------
 
-pip -r requirements.txt
+pip install -r requirements.txt
 
 Make sure to have ffmpeg installed:
 
-Debian/Ubuntu:
+On Debian/Ubuntu:
 sudo apt install ffmpeg
 
 or 
 
-Mac OS
+On Mac OS:
 brew install ffmpeg
 
 Submodules
