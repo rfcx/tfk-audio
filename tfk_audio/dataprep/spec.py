@@ -89,24 +89,21 @@ class SpecGenerator():
                             mel_bands = self.mel_bands,
                             tflite_compatible = self.tflite_compatible)
     
-    def save_spec(self, audio_path, spec_out_path):
+    def save_spec(self, audio_path, output_path):
         ''' Saves a spectrogram file
         '''
+
         spec = self.wav_to_spec(audio_path)
-        np.save(spec_out_path+self._spec_file_sig, spec)
+        np.save(output_path, spec)
         
-    def _save_spec(self, audio_path, output_dir, count, update=100):
-        if output_dir:
-            spec_out_path = os.path.join(output_dir , audio_path.split('/')[-1])
-        else:
-            spec_out_path = audio_path
-        
-        self.save_spec(audio_path, spec_out_path)
+    def _save_spec(self, audio_path, output_path, count, update=100):
+
+        self.save_spec(audio_path, output_path)
         if count%update==0:
             print(count)
-        self._processed_files.add(spec_out_path+self._spec_file_sig)
+        self._processed_files.add(output_path)
     
-    def process_folder(self, folder, output_dir=None, ext='.wav', overwrite=True, update=100, limit=None):
+    def process_folder(self, folder, output_dir_name=None, ext='.wav', overwrite=True, update=100, limit=None):
         '''Generates a spectrogram file for each audio file in a directory
         
         Args:
@@ -116,34 +113,43 @@ class SpecGenerator():
             update: interval of files processed print statement
             limit: limit of files to process (added for demo-ing)
         '''
-        if output_dir:
-            try:
-                os.makedirs(output_dir)
-            except FileExistsError:
-                pass
-        else:
-            output_dir = folder
+        if not output_dir_name:
+            output_dir_name = 'spec'
 
         files_total = []
         files_to_process = []
-        for root, _, files in os.walk(output_dir):
+        for root, dirs, files in os.walk(folder):
             for name in files:
                 if name.endswith(ext):
-                    files_total.append(os.path.join(root, name))
-                    if not os.path.exists(os.path.join(root, name+self._spec_file_sig)):
-                        files_to_process.append(os.path.join(root, name))
+                    if root.split('/')[-2] in ['positive','negative']:
+                        path_tail = os.sep.join(root.split('/')[-2:])
+                    else:
+                        path_tail = os.sep.join(root.split('/')[-1:])
+                    
+                    spec_out_path = os.path.join(folder, output_dir_name, path_tail, name+self._spec_file_sig)
+                    
+                    audio_path = os.path.join(root, name)
+                    
+                    if not os.path.exists(os.path.dirname(spec_out_path)):
+                        os.makedirs(os.path.dirname(spec_out_path))
+                        
+                    files_total.append((audio_path, spec_out_path))
+                    
+                    if not os.path.exists(spec_out_path):
+                        files_to_process.append((audio_path, spec_out_path))
+
         if overwrite:
             files_to_process = files_total
 
         for i in list(set(files_total).difference(files_to_process)):
-            self._processed_files.add(i+self._spec_file_sig)
+            self._processed_files.add(i[1])
 
         print('Audio files found:',len(files_total))
         print('Spectrogram files found:',len(files_total)-len(files_to_process))
         print('To process:',len(files_to_process))
         
         for count, file_path in enumerate(files_to_process[:limit]):
-            self._save_spec(file_path, output_dir, count, update=update)         
+            self._save_spec(audio_path=file_path[0], output_path=file_path[1], count=count, update=update)         
     
     def plot_example(self, x=None, dblims=list([-100, 20])):
         ''' Plots an example spectrogram
