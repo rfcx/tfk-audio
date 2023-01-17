@@ -151,7 +151,7 @@ class SpecGenerator():
         for count, file_path in enumerate(files_to_process[:limit]):
             self._save_spec(audio_path=file_path[0], output_path=file_path[1], count=count, update=update)         
     
-    def plot_example(self, x=None, dblims=list([-100, 20])):
+    def plot_example(self, x=None, show_axis=False, dblims=list([-100, 20])):
         ''' Plots an example spectrogram
         
         Args:
@@ -171,23 +171,7 @@ class SpecGenerator():
         else:
             tmp = x
         
-        if isinstance(tmp, str):
-            if tmp.endswith(self._spec_file_sig):
-                spec = np.load(tmp)
-            else:
-                try:
-                    wav, sr = audio.load_wav(tmp, self.sample_rate)
-                    spec = self.wav_to_spec(wav)
-                except Exception as e:
-                    print(e)
-                    print('Error: Could not interpret input as path to audio or spectrogram file')
-        elif (isinstance(tmp, tf.Tensor)) or (isinstance(tmp, np.ndarray)):
-            assert len(np.shape(tmp)) in (1,2), 'Error: Array inputs are expected to have 1 (waveform) or 2 (spectrogram) dimensions'
-            if len(np.shape(tmp))==1:
-                spec = self.wav_to_spec(tmp)
-            elif len(np.shape(tmp))==2:
-                spec = tmp
-        spec = tf.transpose(spec) # [<# frequency bands>, <# time frames>]
+        spec = self.transform_to_plot(x)
 
         plt.figure(figsize=(5,4))
         plt.pcolormesh(spec);
@@ -195,38 +179,78 @@ class SpecGenerator():
             if not self.db_limits[i] is None:
                 dblims[i] = self.db_limits[i]
         plt.clim(dblims);
-        plt.axis('off')
+        if not show_axis:
+            plt.axis('off')
         plt.colorbar(aspect=20, label='dB');
 
-    def plot_examples(self, path=None, dblims=list([-100, 20])):
+    def plot_examples(self, path=None, show_axis = False, dblims=list([-100, 20])):
         ''' Plots a grid of example spectrograms
         
         Args:
-            path: path to folder in which to search for spectrogram files
+            path: one of
+                path to spectrogram files as numpy array
+                path to audio file
+                None (will look for a random example in _processed_files attribute)
+
             dblims: dB range of output (assumes dB scaling is applied by default)
         '''
         if (path is None):
             assert len(self._processed_files)>0, 'Error: No spectrogram files given or processed with process_folder.'
             tmp = list(self._processed_files)
         else:
-            if not path.endswith('/'):
-                path+='/'
-            tmp = [path+i for i in os.listdir(path) if i.endswith(self._spec_file_sig)]
+            tmp = [os.path.join(path,i) for i in os.listdir(path) \
+                   if os.path.splitext(i)[-1] in [self._spec_file_sig, '.wav']]
         assert len(tmp)>0, 'Error: No spectrogram files found.'
         random.shuffle(tmp)
-        plt.figure(figsize=(10,10))
+        
+        tmp_ = []
+        
+        for file in tmp:
+            spec = self.transform_to_plot(file)
+            tmp_.append((file, spec))
+        
+        plt.figure(figsize=(14,14))
         nr=4
         nc=4
-        for c,i in enumerate(list(tmp)[:(nr*nc)]):
+        for c,i in enumerate(list(tmp_)[:(nr*nc)]):
             plt.subplot(nr,nc,c+1)
-            spec = np.load(i)
-            spec = tf.transpose(spec) # [<# frequency bands>, <# time frames>]
-            plt.pcolormesh(spec);
+            plt.pcolormesh(i[1]);    
+            if i[0].split('/')[-3] in ['positive','negative']:
+                plt.gca().title.set_text(i[0].split('/')[-2]+'\n'+i[0].split('/')[-3])
+            else:
+                plt.gca().title.set_text(i[0].split('/')[-2])
             for i in range(2):
                 if not self.db_limits[i] is None:
                     dblims[i] = self.db_limits[i]
             plt.clim(dblims);
-            plt.axis('off')
+            if not show_axis:
+                plt.axis('off')
+            plt.tight_layout()
+
+    def transform_to_plot(self, file):
+        '''Transforms a .wav file, or a spectrogram in tensor
+        or numpy array format, in an array that can be plot in a 2D graph.
+        '''
+        
+        if isinstance(file, str):
+            if file.endswith(self._spec_file_sig):
+                spec = np.load(file)
+            else:
+                try:
+                    wav, sr = audio.load_wav(file, self.sample_rate)
+                    spec = self.wav_to_spec(wav)
+                except Exception as e:
+                    print(e)
+                    print('Error: Could not interpret input as path to audio or spectrogram file')
+        elif (isinstance(file, tf.Tensor)) or (isinstance(file, np.ndarray)):
+            assert len(np.shape(file)) in (1,2), 'Error: Array inputs are expected to have 1 (waveform) or 2 (spectrogram) dimensions'
+            if len(np.shape(file))==1:
+                spec = self.wav_to_spec(file)
+            elif len(np.shape(file))==2:
+                spec = file
+        spec = tf.transpose(spec) # [<# frequency bands>, <# time frames>]
+
+        return spec
             
     def shape(self, input_seconds):
         ''' Spectrogram shape for a given waveform duration
