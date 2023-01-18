@@ -6,12 +6,14 @@ import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from . import audio
 import matplotlib.pyplot as plt
+import inspect
 
 
 class SpecGenerator():
     ''' Tensorflow-compatible spectrogram data handler
     '''
-    def __init__(self, 
+    def __init__(self,
+                 config=None,
                  sample_rate=16000,
                  stft_window_seconds=0.025,
                  stft_hop_seconds=0.01,
@@ -36,24 +38,40 @@ class SpecGenerator():
             sample_seconds:         model input seconds (only used in fit module)
         '''
         
-        self.sample_rate = sample_rate
-        self.stft_window_seconds = stft_window_seconds
-        self.stft_hop_seconds = stft_hop_seconds
-        self.min_hz = min_hz
-        self.max_hz = max_hz
-        self.db_scale = db_scale
-        self.db_limits = db_limits
-        self.sample_seconds = sample_seconds
-        self.mel_bands = mel_bands
+        if config:
+            init_parameters = []
+            for name, _ in inspect.signature(self.__init__).parameters.items():
+                if name != 'config':
+                    init_parameters.append(name)
+            
+            for key in init_parameters:
+                setattr(self, key, config['spec'].get(key))
+            self.sample_rate = config['audio'].get('sample_rate')
+            self.sample_seconds = config['datagen'].get('sample_seconds_target')
+            
+            print(vars(self))
+            
+        else:
+            self.sample_rate = sample_rate
+            self.stft_window_seconds = stft_window_seconds
+            self.stft_hop_seconds = stft_hop_seconds
+            self.min_hz = min_hz
+            self.max_hz = max_hz
+            self.db_scale = db_scale
+            self.db_limits = db_limits
+            self.sample_seconds = sample_seconds
+            self.mel_bands = mel_bands
+            self.tflite_compatible = tflite_compatible
+            if self.max_hz is None:
+                self.max_hz = self.sample_rate/2.0
+            if self.min_hz is None:
+                self.min_hz = 0.0
+
         self.second_width = int(1/self.stft_hop_seconds-(self.stft_window_seconds/self.stft_hop_seconds)+1)
         self.sample_width = None
         if self.sample_seconds is not None:
             self.sample_width = int((self.sample_seconds)/self.stft_hop_seconds-\
                                     (self.stft_window_seconds/self.stft_hop_seconds)+1)
-        if self.max_hz is None:
-            self.max_hz = self.sample_rate/2.0
-        if self.min_hz is None:
-            self.min_hz = 0.0
         self.stft_window_samples = int(self.stft_window_seconds*self.sample_rate)
         self.stft_hop_samples = int(round(self.sample_rate * self.stft_hop_seconds))
         self.fft_length = 2 ** int(np.ceil(np.log(self.stft_window_samples) / np.log(2.0)))
@@ -62,7 +80,7 @@ class SpecGenerator():
         else:
             self.num_frequency_bins = self.fft_length // 2 + 1
         self.image_shape = (self.sample_width, self.num_frequency_bins)
-        self.tflite_compatible = tflite_compatible
+        
         self._spec_file_sig = '_spec.npy'
         self._processed_files = set()
 
