@@ -49,8 +49,6 @@ class SpecGenerator():
             self.sample_rate = config['audio'].get('sample_rate')
             self.sample_seconds = config['datagen'].get('sample_seconds_target')
             
-            print(vars(self))
-            
         else:
             self.sample_rate = sample_rate
             self.stft_window_seconds = stft_window_seconds
