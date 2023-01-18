@@ -39,13 +39,9 @@ class SpecGenerator():
         '''
         
         if config:
-            init_parameters = []
-            for name, _ in inspect.signature(self.__init__).parameters.items():
-                if name != 'config':
-                    init_parameters.append(name)
-            
-            for key in init_parameters:
-                setattr(self, key, config['spec'].get(key))
+            for key, _ in inspect.signature(self.__init__).parameters.items():
+                if key in list(config['spec'].keys()):
+                    setattr(self, key, config['spec'].get(key))
             self.sample_rate = config['audio'].get('sample_rate')
             self.sample_seconds = config['datagen'].get('sample_seconds_target')
             
