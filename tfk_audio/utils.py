@@ -1,4 +1,5 @@
 import yaml
+import os 
 
 def load_config(config_file_path):
     '''receives a config file path and loads into a json object'''
@@ -12,4 +13,10 @@ def load_config(config_file_path):
         print(e)
         
     else:
+        try:
+            os.makedirs(config['outpath'])
+        except FileExistsError as fe:
+            print('WARNING: output directory already exists')
+        else:
+            print(f"An output file was created at '{config['outpath']}'")
         return config
