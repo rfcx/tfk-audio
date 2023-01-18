@@ -1,5 +1,3 @@
-import os
-import json
 import yaml
 
 def load_config(config_file_path):
