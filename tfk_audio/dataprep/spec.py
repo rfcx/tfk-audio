@@ -62,10 +62,11 @@ class SpecGenerator():
             self.sample_seconds = sample_seconds
             self.mel_bands = mel_bands
             self.tflite_compatible = tflite_compatible
-            if self.max_hz is None:
-                self.max_hz = self.sample_rate/2.0
-            if self.min_hz is None:
-                self.min_hz = 0.0
+
+        if self.max_hz is None or self.max_hz == 0:
+            self.max_hz = self.sample_rate/2.0
+        if self.min_hz is None:
+            self.min_hz = 0.0
 
         self.second_width = int(1/self.stft_hop_seconds-(self.stft_window_seconds/self.stft_hop_seconds)+1)
         self.sample_width = None
