@@ -408,7 +408,28 @@ def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4):
         plt.pcolormesh(batch[c].numpy().T)
         plt.clim([-100, 20])
         plt.axis('off') 
-        
+
+def plot_batch_samples_from_ds(ds, labelmap=None, nr=4, nc=4):
+    ''' Plots a batch of examples from the DataGenerator
+    
+    Args:
+        batch: batch tensor
+        nr:    number of rows to plot
+        nc:    number of columns to plot
+    '''
+    batch = next(iter(ds))
+    
+    plt.figure(figsize=(15,15))
+    for c in range(nr*nc):
+        plt.subplot(nr,nc,c+1)
+        if labelmap:
+            labels = '\n'.join([k for k, v in labelmap.items() if v in np.argwhere(batch[1][c].numpy()==1)])
+            if not labels:
+                labels = 'No positives'
+            plt.title(labels)
+        plt.pcolormesh(batch[0][c].numpy().T)
+        plt.clim([-100, 20])
+        plt.axis('off')
         
 def create_tfrecords(files: list,
                      labels: np.ndarray,
