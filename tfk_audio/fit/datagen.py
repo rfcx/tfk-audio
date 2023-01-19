@@ -14,6 +14,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        nclass: int,
                                        batch_size: int = 1,
                                        time_crop: float = 1.0,
+                                       iter_shuffle: bool = False,
                                        random_time_crop: bool = False,
                                        augment: bool = True,
                                        augment_blend_prob: bool = 0.5,
@@ -36,6 +37,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
         image_shape:                 integer tuple of spectrogram image shape: (frequency bins, time bins)
         batch_size:                  samples per batch
         time_crop:                   if <1.0, spectrograms will be cropped in time to time_crop of their original width
+        iter_shuffle                 shuffle dataset after each iteration. Recommended for train but not for validation set     
         augment:                     whether to apply data augmentation
         augment_blend_prob:          probability of blending a sample with another
         augment_blend_strength:      strength of blended samples
@@ -52,11 +54,17 @@ def spectrogram_dataset_from_tfrecords(files: list,
         assume_negative_prob:        probability of randomly setting a -1 label to 0
     '''    
     ds = tf.data.Dataset.from_tensor_slices(files) # list of tfrecord files
-    ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
-    ds = ds.repeat()
+    if iter_shuffle:
+        ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
+        ds = ds.repeat()
+#     else:
+#         ds = ds.shuffle(len(files), reshuffle_each_iteration=False) # shuffle tfrecord files
     ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=max(1, len(files)//100), block_length=1) # load tfrecords
     ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), num_parallel_calls=AUTO) # parse records
-    ds = ds.shuffle(batch_size*2, reshuffle_each_iteration=True) # use buffer shuffling
+    if iter_shuffle:
+        ds = ds.shuffle(batch_size*2, reshuffle_each_iteration=True) # use buffer shuffling
+#     else:
+#         ds = ds.shuffle(batch_size*2, reshuffle_each_iteration=False) # use buffer shuffling
         
     time_crop = int(time_crop*image_shape[0])
     if time_crop<image_shape[0]:
@@ -108,8 +116,11 @@ def spectrogram_dataset_from_tfrecords(files: list,
     
     if assume_negative_prob>0:
         ds = ds.map(lambda x, y: (x, assume_negative(y, (nclass,), assume_negative_prob)))
+    
+    if iter_shuffle:
+        return ds.batch(batch_size).shuffle(5, reshuffle_each_iteration=True) # batch and shuffle batches
 
-    return ds.batch(batch_size).shuffle(5, reshuffle_each_iteration=True) # batch and shuffle batches
+    return ds.batch(batch_size, drop_remainder=False)
     
     
 def _parse_tfrecord(example_proto, shape, nclass):
