@@ -37,7 +37,7 @@ def resample(wav, sr, sr_new):
     return librosa.resample(wav, orig_sr=sr, target_sr=sr_new)
 
 
-def convert_to_wav(source, destination, codec='pcm_s24le', sample_rate='64000'):
+def convert_to_wav(source, destination, codec='pcm_s16le', sample_rate='64000'):
     ''' Converts a file to WAV format
     '''
     ff = FFmpeg(global_options='-loglevel panic',
