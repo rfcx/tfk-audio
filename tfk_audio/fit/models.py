@@ -5,18 +5,18 @@ from ..dataprep import spec
 import tensorflow.keras.applications as imagenet_models
 
 
-def imagenet_audio_model(backbone, num_classes, specgenerator, hop_seconds=1.0):
+def imagenet_audio_model(base_model, base_model_preprocessor, num_classes, specgenerator, hop_seconds=1.0):
     ''' Creates a Tensorflow model for predicting on audio waveforms
     
     Args:
-        backbone:        imagenet model backbone, from tf.keras.applications
+        base_model:        imagenet model base_model, from tf.keras.applications
         num_classes:     number of classes
         specgenerator:   tfk.dataprep.spec.SpecGenerator object
         hop_seconds:     number of seconds between predictions
     Returns
         A Tensorflow model
     '''    
-    conv = backbone(weights='imagenet', include_top=False, input_shape=[224, 224, 3])
+    conv = base_model(weights='imagenet', include_top=False, input_shape=[224, 224, 3])
     for layer in conv.layers:
         layer.trainable = True
         
@@ -52,7 +52,7 @@ def imagenet_audio_model(backbone, num_classes, specgenerator, hop_seconds=1.0):
             name='repeat1'
         )(x)
     x = layers.Lambda(
-            lambda x: tf.image.per_image_standardization(x),
+            lambda x: base_model_preprocessor(x),
             name='norm1'
         )(x)
     x = layers.Lambda(
@@ -64,7 +64,7 @@ def imagenet_audio_model(backbone, num_classes, specgenerator, hop_seconds=1.0):
                                      axis=0),
             name='frame1'
         )(x)
-    x = conv(x)
+    x = conv(x, training=False)
     x = layers.AveragePooling2D((7, 7))(x)
     x = layers.Flatten()(x)
     x = layers.Dropout(0.5)(x)
@@ -73,43 +73,45 @@ def imagenet_audio_model(backbone, num_classes, specgenerator, hop_seconds=1.0):
     return tf.keras.models.Model(inputs=inputs, outputs=outputs)
 
     
-def imagenet_spec_model(backbone, num_classes, input_shape):
+def imagenet_spec_model(base_model, base_model_preprocessor, num_classes, input_shape, target_shape):
     ''' Creates a Tensorflow model for predicting on spectrograms
     
     Args:
-        backbone:        imagenet model backbone, from tf.keras.applications
+        base_model:        imagenet model base_model, from tf.keras.applications
         num_classes:     number of classes
         input_shape:     input spectrogram (height, width)
     Returns
         A Tensorflow model
     '''
-    conv = backbone(weights='imagenet', include_top=False, input_shape=[224, 224, 3])
-    for layer in conv.layers:
-        layer.trainable = True
+    conv = base_model(weights='imagenet', 
+                    include_top=False, 
+                    input_shape=[*target_shape, 3])
     
     inputs = layers.Input(input_shape)
     x = layers.Reshape(target_shape=(*input_shape, 1))(inputs)
     x = layers.Lambda(
-            lambda x: tf.image.resize(x, (224, 224)),
+            lambda x: tf.image.resize(x, target_shape),
             name='resize1'
         )(x)
     x = layers.Lambda(
             lambda x: tf.keras.backend.repeat_elements(x=x, rep=3, axis=3)
         )(x)
     x = layers.Lambda(
-            lambda x: tf.image.per_image_standardization(x)
+            lambda x: base_model_preprocessor(x)
+#             lambda x: tf.keras.applications.mobilenet_v2.preprocess_input(x)
         )(x)
-    x = conv(x)
-    x = layers.AveragePooling2D((7, 7))(x)
+    x = conv(x, training=False)
+    x = layers.GlobalAveragePooling2D()(x)
     x = layers.Flatten()(x)
     x = layers.Dropout(0.5)(x)
     outputs = layers.Dense(num_classes, activation='sigmoid')(x)
     
-    return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+    model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+    
+    model.layers[5]._name = 'base_model'
+    
+    return model
 
-                               
-    
-    
     
 # class YAMNet(tf.keras.Model):
 #     def __init__(self, config):    

@@ -20,6 +20,7 @@ class SpecGenerator():
                  db_scale=True,
                  db_limits=(-100,20),
                  mel_bands=None,
+                 normalize_audio=False,
                  tflite_compatible=True,
                  sample_seconds=3.0):
         '''
@@ -32,6 +33,7 @@ class SpecGenerator():
             db_scale:               whether to apply dB scaling to amplitudes
             db_limits:              dB values will be clipped within this range
             mel_bands:              number of mel bands to apply
+            normalize_audio:        whether to normalize waveforms to sum to 1
             tflite_compatible:      if True will use a tflite-compatible STFT operation
             sample_seconds:         model input seconds (only used in fit module)
         '''
@@ -45,6 +47,7 @@ class SpecGenerator():
         self.db_limits = db_limits
         self.sample_seconds = sample_seconds
         self.mel_bands = mel_bands
+        self.norm = normalize_audio
         self.second_width = int(1/self.stft_hop_seconds-(self.stft_window_seconds/self.stft_hop_seconds)+1)
         self.sample_width = None
         if self.sample_seconds is not None:
@@ -77,6 +80,8 @@ class SpecGenerator():
         '''
         if type(waveform)==str:
             waveform, _ = audio.load_wav(waveform, self.sample_rate)
+        if self.norm:
+            waveform = normalize_waveform(waveform)
         return _wav_to_spec(waveform,
                             sample_rate = self.sample_rate,
                             stft_window_samples = self.stft_window_samples,
@@ -329,6 +334,10 @@ def _apply_db_scale(spec, db_limits=[None, None]):
     if db_limits[1] is None:
         db_limits = (db_limits[0], tf.math.reduce_max(spec))    
     return tf.clip_by_value(spec, db_limits[0], db_limits[1])
+
+
+def normalize_waveform(waveform):
+    return waveform/tf.reduce_max(tf.math.abs(waveform))
 
             
 def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):

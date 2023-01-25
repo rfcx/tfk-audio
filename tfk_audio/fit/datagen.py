@@ -9,6 +9,7 @@ from .labels import *
 
 AUTO = tf.data.AUTOTUNE
 
+
 def spectrogram_dataset_from_tfrecords(files: list,
                                        image_shape: tuple,
                                        nclass: int,
@@ -28,7 +29,8 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        augment_max_time_shift: float = 0.25,
                                        augment_max_freq_shift: float = 0.05,
                                        augment_max_contrast: float = 2.0,
-                                       assume_negative_prob: float = 0.0):
+                                       assume_negative_prob: float = 0.0,
+                                       repeat=True):
     ''' Prepares a tf.data.Dataset for generating spectrogram training data
     
     Args:
@@ -53,7 +55,8 @@ def spectrogram_dataset_from_tfrecords(files: list,
     '''    
     ds = tf.data.Dataset.from_tensor_slices(files) # list of tfrecord files
     ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
-    ds = ds.repeat()
+    if repeat:
+        ds = ds.repeat()
     ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=max(1, len(files)//100), block_length=1) # load tfrecords
     ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), num_parallel_calls=AUTO) # parse records
     ds = ds.shuffle(batch_size*2, reshuffle_each_iteration=True) # use buffer shuffling
@@ -110,6 +113,13 @@ def spectrogram_dataset_from_tfrecords(files: list,
         ds = ds.map(lambda x, y: (x, assume_negative(y, (nclass,), assume_negative_prob)))
 
     return ds.batch(batch_size).shuffle(5, reshuffle_each_iteration=True) # batch and shuffle batches
+    
+    
+def assume_negative(y, shape, prob=0.25):
+    ''' Sets -1 labelst to 0 with some probability
+    '''
+    assumptions = tf.where(tf.random.uniform(shape, 0, 1)<=prob, tf.zeros_like(y), tf.ones_like(y)*-1)
+    return tf.where(y==-1, tf.cast(assumptions, tf.float32), y)
     
     
 def _parse_tfrecord(example_proto, shape, nclass):
@@ -217,7 +227,7 @@ def add_noise(x, prob, strength):
 def mixup(X: tf.Tensor, 
           y: tf.Tensor,
           batch_size: int):
-    """ Apply mix up augmentation to a batch of spectrograms
+    ''' Apply mix up augmentation to a batch of spectrograms
     
     Args:
         X: batch input tensor
@@ -225,7 +235,7 @@ def mixup(X: tf.Tensor,
     Returns:
         X: blended batch input tensor
         y: blended batch label tensor
-    """
+    '''
     tf.debugging.assert_non_negative(tf.reduce_min(y), 
                                      message='Error: mixup augmentation not yet compatible with unknown (-1) labels')
     
@@ -243,7 +253,7 @@ def blend(X: tf.Tensor,
           batch_size: int,
           prob: float=1.0, 
           strength: float=0.5):
-    """ Apply blending augmentation to a batch of spectrograms
+    ''' Apply blending augmentation to a batch of spectrograms
     
     Args:
         X: batch input tensor
@@ -251,7 +261,7 @@ def blend(X: tf.Tensor,
     Returns:
         X: blended batch input tensor
         y: blended batch label tensor
-    """
+    '''
     # binary vector of length batch_size indicating whether the sample will be blended
     toblend = tf.where(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
                        tf.ones_like((batch_size,)), 
@@ -267,8 +277,8 @@ def blend(X: tf.Tensor,
 
 
 def combine_labels(y1: tf.Tensor, y2: tf.Tensor):
-    """ Implements logic for combining multi-label vectors with compatibility for unknown labels represented by -1
-    """
+    ''' Implements logic for combining multi-label vectors with compatibility for unknown labels represented by -1
+    '''
     y1 = tf.where(y1==1, tf.ones_like(y1)*2, y1)
     y2 = tf.where(y2==1, tf.ones_like(y2)*2, y2)
     y = y1+y2
@@ -279,13 +289,6 @@ def beta_dist(size, concentration_0=0.2, concentration_1=0.2):
     gamma_1_sample = tf.random.gamma(shape=[size], alpha=concentration_1)
     gamma_2_sample = tf.random.gamma(shape=[size], alpha=concentration_0)
     return gamma_1_sample / (gamma_1_sample + gamma_2_sample)
-                                  
-                                  
-def assume_negative(y, shape, prob=0.25):
-    ''' Sets -1 labelst to 0 with some probability
-    '''
-    assumptions = tf.where(tf.random.uniform(shape, 0, 1)<=prob, tf.zeros_like(shape), tf.ones_like(shape)*-1)
-    return tf.where(y==-1, tf.cast(assumptions, tf.float32), y)
 
 
 def get_files_and_label_map(data_dirs: list, 
@@ -394,7 +397,7 @@ def num_pos_neg_per_class(files: list):
     display(pd.DataFrame({'Class':classes,'Positives':p,'Negatives':n}))
     
     
-def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4):
+def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4, dblims=(-100, 20)):
     ''' Plots a batch of examples from the DataGenerator
     
     Args:
@@ -406,7 +409,7 @@ def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4):
     for c in range(nr*nc):
         plt.subplot(nr,nc,c+1)
         plt.pcolormesh(batch[c].numpy().T)
-        plt.clim([-100, 20])
+        plt.clim(dblims)
         plt.axis('off') 
         
         
@@ -495,8 +498,8 @@ def np_to_tfrecords(X, Y, file_path_prefix):
         elif dtype_ == np.int64:
             return lambda array: tf.train.Feature(int64_list=tf.train.Int64List(value=array))
         else:  
-            raise ValueError("The input should be numpy ndarray. \
-                               Instaed got {}".format(ndarray.dtype))
+            raise ValueError('The input should be numpy ndarray. \
+                               Instaed got {}'.format(ndarray.dtype))
             
     assert isinstance(X, np.ndarray)
     assert len(X.shape) == 2  # If X has a higher rank, 
