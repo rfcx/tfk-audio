@@ -38,7 +38,7 @@ class SpecGenerator():
             sample_seconds:         model input seconds (only used in fit module)
         '''
         
-        self.sample_rate = sample_rate
+        self.sample_rate = float(sample_rate)
         self.stft_window_seconds = stft_window_seconds
         self.stft_hop_seconds = stft_hop_seconds
         self.min_hz = min_hz
@@ -54,7 +54,7 @@ class SpecGenerator():
             self.sample_width = int((self.sample_seconds)/self.stft_hop_seconds-\
                                     (self.stft_window_seconds/self.stft_hop_seconds)+1)
         if self.max_hz is None:
-            self.max_hz = self.sample_rate/2.0
+            self.max_hz = self.sample_rate/2
         if self.min_hz is None:
             self.min_hz = 0.0
         self.stft_window_samples = int(self.stft_window_seconds*self.sample_rate)
@@ -217,9 +217,12 @@ class SpecGenerator():
                     (self.stft_window_seconds/self.stft_hop_seconds)+1)
         return (width, self.num_frequency_bins)
     
-    def to_json(self, filename):
+    def get_config(self):
+        return {k:v for (k,v) in self.__dict__.items() if k!='_processed_files'}
+    
+    def to_json(self, filename=None):
         with open(filename, 'w') as f:
-            json.dump({k:v for (k,v) in self.__dict__.items() if k!='_processed_files'}, f, sort_keys=True, indent=4)
+            json.dump(self.get_config(), f, sort_keys=True, indent=4)
     
     def from_json(self, filename):
         config = json.load(open(filename, 'r'))
