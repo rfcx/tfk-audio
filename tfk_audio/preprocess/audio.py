@@ -5,7 +5,7 @@ from ffmpy import FFmpeg, FFRuntimeError
 
 
 def load_wav(path, sr=None, numpy=False):
-    '''Loads a .wav file
+    '''Loads a 16-bit PCM .wav file into a tensor
     
     Args:
         path: .wav file path

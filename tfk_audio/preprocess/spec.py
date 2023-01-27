@@ -20,7 +20,8 @@ class SpecGenerator():
                  db_scale=True,
                  db_limits=(-100,20),
                  mel_bands=None,
-                 normalize_audio=False,
+                 normalize_audio=True,
+                 normalize_rms_db=-30,
                  tflite_compatible=True,
                  sample_seconds=3.0):
         '''
@@ -48,6 +49,7 @@ class SpecGenerator():
         self.sample_seconds = sample_seconds
         self.mel_bands = mel_bands
         self.norm = normalize_audio
+        self.norm_db = normalize_rms_db
         self.second_width = int(1/self.stft_hop_seconds-(self.stft_window_seconds/self.stft_hop_seconds)+1)
         self.sample_width = None
         if self.sample_seconds is not None:
@@ -80,8 +82,6 @@ class SpecGenerator():
         '''
         if type(waveform)==str:
             waveform, _ = audio.load_wav(waveform, self.sample_rate)
-        if self.norm:
-            waveform = normalize_waveform(waveform)
         return _wav_to_spec(waveform,
                             sample_rate = self.sample_rate,
                             stft_window_samples = self.stft_window_samples,
@@ -92,6 +92,8 @@ class SpecGenerator():
                             db_limits = self.db_limits,
                             db_scale = self.db_scale,
                             mel_bands = self.mel_bands,
+                            normalize_audio = self.norm,
+                            normalize_rms_db = self.norm_db,
                             tflite_compatible = self.tflite_compatible)
     
     def save_spec(self, audio_path):
@@ -248,6 +250,8 @@ def _wav_to_spec(waveform,
                  db_scale,
                  db_limits,
                  mel_bands,
+                 normalize_audio,
+                 normalize_rms_db,
                  tflite_compatible):
     '''Converts a 1-D waveform into a spectrogram
     
@@ -268,6 +272,8 @@ def _wav_to_spec(waveform,
     Returns:
         spec: [<# frequency bins>, <# time frames>]
     '''
+    if normalize_audio:
+        waveform = normalize_waveform(waveform, normalize_rms_db)
     if tflite_compatible:
         spec = _tflite_stft_magnitude(
             signal=waveform,
@@ -339,8 +345,11 @@ def _apply_db_scale(spec, db_limits=[None, None]):
     return tf.clip_by_value(spec, db_limits[0], db_limits[1])
 
 
-def normalize_waveform(waveform):
-    return waveform/tf.reduce_max(tf.math.abs(waveform))
+def normalize_waveform(wav, db=-30):
+    r = 10**(db/20)
+    a = tf.sqrt((len(wav)*r**2)/(tf.reduce_sum(wav**2)))
+    wav = wav*a
+    return wav
 
             
 def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):

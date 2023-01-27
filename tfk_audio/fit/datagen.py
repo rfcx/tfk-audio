@@ -70,6 +70,10 @@ def spectrogram_dataset_from_tfrecords(files: list,
         
     if augment:
         
+        # random contrast
+        if augment_max_contrast>1:
+            ds = ds.map(lambda x, y: (random_contrast(x, augment_max_contrast), y), num_parallel_calls=AUTO)
+        
         # blending
         if augment_blend_prob>0:
             ds = ds.batch(batch_size)
@@ -81,10 +85,6 @@ def spectrogram_dataset_from_tfrecords(files: list,
             ds = ds.batch(batch_size)
             ds = ds.map(lambda x, y: mixup(x, y, batch_size), num_parallel_calls=AUTO)
             ds = ds.unbatch()
-
-        # random contrast
-        if augment_max_contrast>1:
-            ds = ds.map(lambda x, y: (random_contrast(x, augment_max_contrast), y), num_parallel_calls=AUTO)
             
         # add noise
         if augment_add_noise_prob>0:
