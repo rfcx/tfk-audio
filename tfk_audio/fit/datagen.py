@@ -394,7 +394,8 @@ def num_pos_neg_per_class(files: list):
         classes.append(i)
         p.append(len(np.where([(j.split('/')[-2]==i) & (j.split('/')[-3]=='positive') for j in files])[0]))
         n.append(len(np.where([(j.split('/')[-2]==i) & (j.split('/')[-3]=='negative') for j in files])[0]))
-    display(pd.DataFrame({'Class':classes,'Positives':p,'Negatives':n}))
+    df = pd.DataFrame({'Class':classes,'Positives':p,'Negatives':n})
+    return df
     
     
 def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4, dblims=(-100, 20)):
