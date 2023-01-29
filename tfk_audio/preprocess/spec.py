@@ -96,45 +96,56 @@ class SpecGenerator():
                             normalize_rms_db = self.norm_db,
                             tflite_compatible = self.tflite_compatible)
     
-    def save_spec(self, audio_path):
+    def save_spec(self, indir, outdir, path):
         ''' Saves a spectrogram file
         '''
-        spec = self.wav_to_spec(audio_path)
-        np.save(audio_path+self._spec_file_sig, spec)
+        if not os.path.exists(outdir+('/').join(path.split('/')[:-1])):
+            os.makedirs(outdir+('/').join(path.split('/')[:-1]))
+        spec = self.wav_to_spec(indir+path)
+        np.save(outdir+path+self._spec_file_sig, spec)
         
-    def _save_spec(self, path, count, update=100):
-        self.save_spec(path)
+    def _save_spec(self, count, indir, outdir, path, update=100):
+        self.save_spec(indir, outdir, path)
         if count%update==0:
             print(count)
-        self._processed_files.add(path+self._spec_file_sig)
+        self._processed_files.add(outdir+path+self._spec_file_sig)
     
-    def process_folder(self, folder, ext='.wav', overwrite=True, update=100, limit=None):
+    def process_folder(self, indir, outdir, ext='.wav', overwrite=True, update=100, limit=None, shuffle=False):
         '''Generates a spectrogram file for each audio file in a directory
         
         Args:
-            folder: path to folder in which to search for audio files
+            indir: path to folder in which to search for audio files
+            outdir: patht to store spectrogram files in
             ext: extension of files to process
             overwrite: whether to overwrite previous spectrogram files
             update: interval of files processed print statement
             limit: limit of files to process (added for demo-ing)
         '''
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+                
         files_total = []
         files_to_process = []
-        for root, dirs, files in os.walk(folder):
+        for root, dirs, files in os.walk(indir): # loop over input folder
             for name in files:
-                if name.endswith(ext):
-                    files_total.append(os.path.join(root, name))
+                if name.endswith(ext): # if audio file
+                    files_total.append(os.path.join(root, name)) 
                     if not os.path.exists(os.path.join(root, name+self._spec_file_sig)):
                         files_to_process.append(os.path.join(root, name))
+        
         if overwrite:
             files_to_process = files_total
         for i in list(set(files_total).difference(files_to_process)):
-            self._processed_files.add(i+self._spec_file_sig)
+            self._processed_files.add(i.replace(indir, outdir)+self._spec_file_sig) # make sure already processed files are in list
+        
         print('Audio files found:',len(files_total))
         print('Spectrogram files found:',len(files_total)-len(files_to_process))
         print('To process:',len(files_to_process))
+        if shuffle:
+            random.shuffle(files_to_process)
         for c,i in enumerate(files_to_process[:limit]):
-            self._save_spec(i, c, update=update)         
+            i = i.replace(indir, '')
+            self._save_spec(c, indir=indir, outdir=outdir, path=i, update=update)         
     
     def plot_example(self, x=None, dblims=list([-100, 20])):
         ''' Plots an example spectrogram
@@ -231,15 +242,8 @@ class SpecGenerator():
         for key in config:
             setattr(self, key, config[key])
         self._processed_files = set()
-        
-#     def _process_batch(self, batch):
-#         ''' Attempt at allowing >1 batch size for audio models
-#
-#             One option is to predefine the input waveform length and pad everything to it
-#         '''
-#         return tf.map_fn(lambda x: self.wav_to_spec(x), elems=(batch))
 
-    
+        
 def _wav_to_spec(waveform, 
                  sample_rate, 
                  stft_window_samples, 
