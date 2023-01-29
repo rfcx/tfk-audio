@@ -130,7 +130,7 @@ class SpecGenerator():
             for name in files:
                 if name.endswith(ext): # if audio file
                     files_total.append(os.path.join(root, name)) 
-                    if not os.path.exists(os.path.join(root, name+self._spec_file_sig)):
+                    if not os.path.exists(os.path.join(root, name+self._spec_file_sig).replace(indir, outdir)):
                         files_to_process.append(os.path.join(root, name))
         
         if overwrite:
