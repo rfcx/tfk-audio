@@ -273,7 +273,7 @@ def blend(X: tf.Tensor,
     # combine labels
     label = combine_labels(y, tf.gather(y, idxshuffle, axis=0))
                      
-    return X, y
+    return X, labels
 
 
 def combine_labels(y1: tf.Tensor, y2: tf.Tensor):
