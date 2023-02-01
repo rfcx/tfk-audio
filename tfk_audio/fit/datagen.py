@@ -271,7 +271,7 @@ def blend(X: tf.Tensor,
     X = X*(1-toblend) + tf.gather(X, idxshuffle, axis=0)*toblend
 
     # combine labels
-    label = combine_labels(y, tf.gather(y, idxshuffle, axis=0))
+    labels = combine_labels(y, tf.gather(y, idxshuffle, axis=0))
                      
     return X, labels
 
