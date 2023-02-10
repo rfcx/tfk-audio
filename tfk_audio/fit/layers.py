@@ -45,7 +45,8 @@ def spec_to_imagenet(inputs, target_shape, image_scaling=True):
 
     # scale
     if image_scaling:
-        x = norm(x)
+        x = tf.map_fn(norm, x)
+#         x = norm(x)
         x *= 255
         
     return x
