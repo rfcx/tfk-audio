@@ -351,7 +351,7 @@ def _apply_db_scale(spec, db_limits=[None, None]):
 
 def normalize_waveform(wav, db=-30):
     r = 10**(db/20)
-    a = tf.sqrt((len(wav)*r**2)/(tf.reduce_sum(wav**2)))
+    a = tf.sqrt((wav.shape[0]*r**2)/(tf.reduce_sum(wav**2)))
     wav = wav*a
     return wav
 

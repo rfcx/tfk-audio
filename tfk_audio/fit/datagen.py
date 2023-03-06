@@ -30,6 +30,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        augment_max_freq_shift: float = 0.05,
                                        augment_max_contrast: float = 2.0,
                                        assume_negative_prob: float = 0.0,
+                                       label_weights: tuple = (1, 1),
                                        repeat=True):
     ''' Prepares a tf.data.Dataset for generating spectrogram training data
     
@@ -52,65 +53,86 @@ def spectrogram_dataset_from_tfrecords(files: list,
         augment_max_freq_shift:      max freq shift (fraction of total frequency range)
         augment_max_contrast:        max random contrast factor
         assume_negative_prob:        probability of randomly setting a -1 label to 0
+        label_weights:               a tuple containing the weight of negative and positive samples, respectively
+        repeat:                      whether to repeat the data infinitely
     '''    
     ds = tf.data.Dataset.from_tensor_slices(files) # list of tfrecord files
     ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
     if repeat:
         ds = ds.repeat()
-    ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=max(1, len(files)//100), block_length=1) # load tfrecords
-    ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), num_parallel_calls=AUTO) # parse records
-    ds = ds.shuffle(batch_size*2, reshuffle_each_iteration=True) # use buffer shuffling
+    ds = ds.interleave(tf.data.TFRecordDataset, 
+                       cycle_length=max(1, len(files)//100), 
+                       block_length=1) # load tfrecords
+    ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), 
+                num_parallel_calls=AUTO) # parse records
+    ds = ds.shuffle(batch_size*2, 
+                    reshuffle_each_iteration=True) # use buffer shuffling
         
     time_crop = int(time_crop*image_shape[0])
     if time_crop<image_shape[0]:
         # center-crop the sample in time to time_crop times the original width
         # doing this turns the results into a tensor with undefined time width, so some of the following operations
         #     require the original image shape to be passed
-        ds = ds.map(lambda x, y: (_time_crop(x, time_crop, image_shape[0], random_time_crop), y), num_parallel_calls=AUTO)
+        ds = ds.map(lambda x, y: (_time_crop(x, time_crop, image_shape[0], random_time_crop), y), 
+                    num_parallel_calls=AUTO)
         
     if augment:
         
         # random contrast
         if augment_max_contrast>1:
-            ds = ds.map(lambda x, y: (random_contrast(x, augment_max_contrast), y), num_parallel_calls=AUTO)
+            ds = ds.map(lambda x, y: (random_contrast(x, augment_max_contrast), y), 
+                        num_parallel_calls=AUTO)
         
         # blending
         if augment_blend_prob>0:
             ds = ds.batch(batch_size)
-            ds = ds.map(lambda x, y: blend(x, y, batch_size, augment_blend_prob, augment_blend_strength), num_parallel_calls=AUTO)
+            ds = ds.map(lambda x, y: blend(x, y, batch_size, augment_blend_prob, augment_blend_strength), 
+                        num_parallel_calls=AUTO)
             ds = ds.unbatch()
             
         # mixup
         if augment_mixup:
             ds = ds.batch(batch_size)
-            ds = ds.map(lambda x, y: mixup(x, y, batch_size), num_parallel_calls=AUTO)
+            ds = ds.map(lambda x, y: mixup(x, y, batch_size), 
+                        num_parallel_calls=AUTO)
             ds = ds.unbatch()
             
         # add noise
         if augment_add_noise_prob>0:
             ds = ds.map(lambda x, y: (add_noise(x, 
                                                 augment_add_noise_prob,
-                                                augment_add_noise_stds), y), num_parallel_calls=AUTO)
+                                                augment_add_noise_stds), y), 
+                        num_parallel_calls=AUTO)
             
         # time masks
         if augment_max_time_masks>0:
             ds = ds.map(lambda x, y: (time_mask(x,
                                                 augment_max_time_masks,
-                                                augment_max_time_mask_size), y), num_parallel_calls=AUTO)
+                                                augment_max_time_mask_size), y), 
+                        num_parallel_calls=AUTO)
         # freq masks 
         if augment_max_freq_masks>0:
             ds = ds.map(lambda x, y: (freq_mask(x,
                                                 augment_max_freq_masks,
-                                                augment_max_freq_mask_size), y), num_parallel_calls=AUTO)
+                                                augment_max_freq_mask_size), y), 
+                        num_parallel_calls=AUTO)
         # affine time-freq shift
         if (augment_max_time_shift>0) or (augment_max_freq_shift>0):
             ds = ds.map(lambda x, y: (affine_transform(x,
                                                        (time_crop, image_shape[1]),
                                                        augment_max_time_shift,
-                                                       augment_max_freq_shift), y), num_parallel_calls=AUTO)
+                                                       augment_max_freq_shift), y), 
+                        num_parallel_calls=AUTO)
     
     if assume_negative_prob>0:
-        ds = ds.map(lambda x, y: (x, assume_negative(y, (nclass,), assume_negative_prob)))
+        ds = ds.map(lambda x, y: (x, assume_negative(y, (nclass,), assume_negative_prob)),
+                    num_parallel_calls=AUTO)
+        
+    
+    # add sample weight
+    if label_weights!=(1, 1):
+        ds = ds.map(lambda x, y: [x, y, tf.gather(label_weights, tf.cast(tf.reduce_max(y), tf.int32))], 
+                    num_parallel_calls=AUTO)
 
     return ds.batch(batch_size).shuffle(5, reshuffle_each_iteration=True) # batch and shuffle batches
     

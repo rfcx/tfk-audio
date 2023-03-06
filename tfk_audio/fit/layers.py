@@ -73,6 +73,23 @@ def wav_to_imagenet(inputs, target_shape, spec_params, image_scaling=True):
                             i),
         name='spec'
         )(inputs)
+
+# maybe just this?
+#     x = tf.map_fn(
+#         lambda j: spec._wav_to_spec(j,
+#                                   sample_rate = spec_params['sample_rate'],
+#                                   stft_window_samples = spec_params['stft_window_samples'],
+#                                   stft_hop_samples = spec_params['stft_hop_samples'],
+#                                   min_hz = spec_params['min_hz'],
+#                                   max_hz = spec_params['max_hz'],
+#                                   fft_length = spec_params['fft_length'],
+#                                   db_limits = spec_params['db_limits'],
+#                                   db_scale = spec_params['db_scale'],
+#                                   mel_bands = spec_params['mel_bands'],
+#                                   normalize_audio = spec_params['norm'],
+#                                   normalize_rms_db = spec_params['norm_db'],
+#                                   tflite_compatible = spec_params['tflite_compatible']
+#                                  ))(inputs)
     
     return spec_to_imagenet(x, target_shape=target_shape, image_scaling=image_scaling)
 
