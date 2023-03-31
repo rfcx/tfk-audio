@@ -5,14 +5,17 @@ class masked_metric_or_loss():
     '''
     def __init__(self,
                  fn,
-                 mask_val = -1):
+                 mask_val = -1,
+                 name = 'masked_metric_or_loss'):
         '''
         Args:
             fn:            metric/loss function taking arguments y_true, y_pred, and sample_weights
             mask_val:      elements where the target array equals this value will be masked
+            name:          name of metric for TF training logs
         '''
         self.fn = fn
         self.mask_val = -1
+        self.__name__ = name
         
     def __call__(self, y, p, sample_weights=None):
         y = tf.convert_to_tensor(y)
