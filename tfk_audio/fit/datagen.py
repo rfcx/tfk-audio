@@ -16,7 +16,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        batch_size: int = 1,
                                        time_crop: float = 1.0,
                                        random_time_crop: bool = False,
-                                       augment: bool = True,
+                                       augment: bool = False,
                                        augment_blend_prob: bool = 0.5,
                                        augment_blend_strength: float = 0.5,
                                        augment_mixup: bool = False,
@@ -31,7 +31,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        augment_max_contrast: float = 2.0,
                                        assume_negative_prob: float = 0.0,
                                        label_weights: tuple = (1, 1),
-                                       repeat=True):
+                                       repeat = False):
     ''' Prepares a tf.data.Dataset for generating spectrogram training data
     
     Args:
