@@ -6,7 +6,8 @@ from ..preprocess import audio, spec
 
 
 def SpecImageNet(target_shape,
-                 image_scaling=True):
+                 image_scaling=True,
+                 channels=3):
     ''' Returns a model to convert spectrogram inputs to ImageNet inputs
     '''
     args = locals()
@@ -18,7 +19,8 @@ def SpecImageNet(target_shape,
     
 def WavImageNet(target_shape,
                 spec_params,
-                image_scaling=True):
+                image_scaling=True,
+                channels=3):
     ''' Returns a model to convert waveform inputs to ImageNet inputs
     '''
     args = locals()
@@ -28,11 +30,11 @@ def WavImageNet(target_shape,
     return tf.keras.models.Model(inputs, outputs, name='wav_to_imagenet')
 
 
-def spec_to_imagenet(inputs, target_shape, image_scaling=True):
+def spec_to_imagenet(inputs, target_shape, image_scaling=True, channels=3):
     ''' Converts a batch of 2D inputs to 3-channel images
     
     '''
-    if len(inputs.shape)==3: # if no channels axis already
+    if (len(inputs.shape)==3): # if no channels axis already
         x = inputs[..., tf.newaxis]
     else:
         x = inputs
@@ -41,8 +43,11 @@ def spec_to_imagenet(inputs, target_shape, image_scaling=True):
     x = layers.Resizing(target_shape[0], target_shape[1])(x)
 
     # add channels
-    x = tf.tile(x, [1, 1, 1, 3])
-
+    if (channels is not None) and (channels>1):
+        x = tf.tile(x, [1, 1, 1, channels])
+    elif (channels is None) or (channels==0):
+        x = x[..., 0]
+        
     # scale
     if image_scaling:
         x = tf.map_fn(norm, x)
@@ -52,7 +57,7 @@ def spec_to_imagenet(inputs, target_shape, image_scaling=True):
     return x
 
 
-def wav_to_imagenet(inputs, target_shape, spec_params, image_scaling=True):
+def wav_to_imagenet(inputs, target_shape, spec_params, image_scaling=True, channels=3):
         
     x = layers.Lambda(
         lambda i: tf.map_fn(lambda j:
@@ -91,7 +96,10 @@ def wav_to_imagenet(inputs, target_shape, spec_params, image_scaling=True):
 #                                   tflite_compatible = spec_params['tflite_compatible']
 #                                  ))(inputs)
     
-    return spec_to_imagenet(x, target_shape=target_shape, image_scaling=image_scaling)
+    return spec_to_imagenet(x, 
+                            target_shape=target_shape, 
+                            image_scaling=image_scaling, 
+                            channels=channels)
 
 
 def norm(tensor):
