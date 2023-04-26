@@ -285,7 +285,8 @@ def blend(X: tf.Tensor,
         y: blended batch label tensor
     '''
     # binary vector of length batch_size indicating whether the sample will be blended
-    toblend = tf.where(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
+    toblend = tf.where(tf.math.logical_and(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
+                                           tf.reshape(tf.reduce_max(y, axis=1), (-1, 1, 1))==1), # only blend positive samples
                        tf.ones_like((batch_size,)), 
                        tf.zeros_like((batch_size,)))
     toblend = tf.cast(toblend, tf.float32) * strength

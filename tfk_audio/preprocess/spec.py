@@ -145,7 +145,38 @@ class SpecGenerator():
             random.shuffle(files_to_process)
         for c,i in enumerate(files_to_process[:limit]):
             i = i.replace(indir, '')
-            self._save_spec(c, indir=indir, outdir=outdir, path=i, update=update)         
+            self._save_spec(c, indir=indir, outdir=outdir, path=i, update=update)
+            
+    def process_files(self, files, indir, outdir, overwrite=True, update=100):
+        '''Generates a spectrogram file for each audio file in a directory
+        
+        Args:
+            files: list of files to process
+            indir: common parent directory of files
+            outdir: parent directory to store spectrogram files in
+            overwrite: whether to overwrite previous spectrogram files
+            update: interval of files processed print statement
+        '''
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+                
+        files_total = []
+        files_to_process = []
+        for i in files: # loop over input folder
+            files_total.append(i) 
+            if not os.path.exists(i.replace(indir, outdir)+self._spec_file_sig):
+                files_to_process.append(i)
+        
+        if overwrite:
+            files_to_process = files_total
+        for i in list(set(files_total).difference(files_to_process)):
+            self._processed_files.add(i.replace(indir, outdir)+self._spec_file_sig) # make sure already processed files are in list
+        
+        print('Spectrogram files found:',len(files_total)-len(files_to_process))
+        print('To process:',len(files_to_process))
+        for c,i in enumerate(files_to_process):
+            i = i.replace(indir, '')
+            self._save_spec(c, indir=indir, outdir=outdir, path=i, update=update)
     
     def plot_example(self, x=None, dblims=list([-100, 20])):
         ''' Plots an example spectrogram
