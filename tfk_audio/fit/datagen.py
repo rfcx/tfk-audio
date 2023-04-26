@@ -14,7 +14,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        image_shape: tuple,
                                        nclass: int,
                                        batch_size: int = 1,
-                                       time_crop: float = 1.0,
+                                       time_crop: int = None,
                                        random_time_crop: bool = False,
                                        augment: bool = False,
                                        augment_blend_prob: bool = 0.5,
@@ -38,7 +38,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
         files:                       list of paths to tfrecord files
         image_shape:                 integer tuple of spectrogram image shape: (frequency bins, time bins)
         batch_size:                  samples per batch
-        time_crop:                   if <1.0, spectrograms will be cropped in time to time_crop of their original width
+        time_crop:                   None or int indicating width to crop spectrograms to
         augment:                     whether to apply data augmentation
         augment_blend_prob:          probability of blending a sample with another
         augment_blend_strength:      strength of blended samples
@@ -68,7 +68,6 @@ def spectrogram_dataset_from_tfrecords(files: list,
     ds = ds.shuffle(batch_size*2, 
                     reshuffle_each_iteration=True) # use buffer shuffling
         
-    time_crop = int(time_crop*image_shape[0])
     if time_crop<image_shape[0]:
         # center-crop the sample in time to time_crop times the original width
         # doing this turns the results into a tensor with undefined time width, so some of the following operations
@@ -293,10 +292,10 @@ def blend(X: tf.Tensor,
     idxshuffle = tf.random.shuffle(tf.range(batch_size))
     X = X*(1-toblend) + tf.gather(X, idxshuffle, axis=0)*toblend
 
-    # combine labels
-    labels = combine_labels(y, tf.gather(y, idxshuffle, axis=0))
-                     
-    return X, labels
+#     # combine labels
+#     labels = combine_labels(y, tf.gather(y, idxshuffle, axis=0))
+    
+    return X, y
 
 
 def combine_labels(y1: tf.Tensor, y2: tf.Tensor):
