@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
+from sklearn.utils import resample
 import matplotlib.pyplot as plt
 from .labels import *
 
@@ -39,6 +40,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
         image_shape:                 integer tuple of spectrogram image shape: (frequency bins, time bins)
         batch_size:                  samples per batch
         time_crop:                   None or int indicating width to crop spectrograms to
+        random_time_crop:            boolean indicating whether time crops should be randomly shifted
         augment:                     whether to apply data augmentation
         augment_blend_prob:          probability of blending a sample with another
         augment_blend_strength:      strength of blended samples
@@ -69,7 +71,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                     reshuffle_each_iteration=True) # use buffer shuffling
         
     if time_crop<image_shape[0]:
-        # center-crop the sample in time to time_crop times the original width
+        # crop the sample in time
         # doing this turns the results into a tensor with undefined time width, so some of the following operations
         #     require the original image shape to be passed
         ds = ds.map(lambda x, y: (_time_crop(x, time_crop, image_shape[0], random_time_crop), y), 
@@ -88,6 +90,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
             ds = ds.map(lambda x, y: blend(x, y, batch_size, augment_blend_prob, augment_blend_strength), 
                         num_parallel_calls=AUTO)
             ds = ds.unbatch()
+
             
         # mixup
         if augment_mixup:
@@ -288,23 +291,23 @@ def blend(X: tf.Tensor,
                                            tf.reshape(tf.reduce_max(y, axis=1), (-1, 1, 1))==1), # only blend positive samples
                        tf.ones_like((batch_size,)), 
                        tf.zeros_like((batch_size,)))
-    toblend = tf.cast(toblend, tf.float32) * strength
+    blendv = tf.cast(toblend, tf.float32) * strength
     idxshuffle = tf.random.shuffle(tf.range(batch_size))
-    X = X*(1-toblend) + tf.gather(X, idxshuffle, axis=0)*toblend
+    X = X*(1-blendv) + tf.gather(X, idxshuffle, axis=0)*blendv
 
-#     # combine labels
-#     labels = combine_labels(y, tf.gather(y, idxshuffle, axis=0))
-    
+    # combine labels
+    labels = combine_labels(y, tf.gather(y, idxshuffle, axis=0), tf.cast(tf.reshape(toblend, [-1]), tf.bool))
+
     return X, y
 
 
-def combine_labels(y1: tf.Tensor, y2: tf.Tensor):
+def combine_labels(y1: tf.Tensor, y2: tf.Tensor, idx: tf.Tensor):
     ''' Implements logic for combining multi-label vectors with compatibility for unknown labels represented by -1
     '''
-    y1 = tf.where(y1==1, tf.ones_like(y1)*2, y1)
-    y2 = tf.where(y2==1, tf.ones_like(y2)*2, y2)
-    y = y1+y2
-    return tf.clip_by_value(y, -1, 1)
+    y1t = tf.where(y1==1, tf.ones_like(y1)*2, y1)
+    y2t = tf.where(y2==1, tf.ones_like(y2)*2, y2)
+    y1 = tf.where(tf.tile(tf.expand_dims(idx, axis=1), multiples=[1, y1.shape[1]]), y1t+y2t, y1)
+    return tf.clip_by_value(y1, -1, 1)
     
 
 def beta_dist(size, concentration_0=0.2, concentration_1=0.2):
@@ -380,9 +383,9 @@ def get_files_and_label_map(data_dirs: list,
             
         # maybe resample
         if target_train is not None:
-            class_train = resample_files(class_train, target_train)
+            class_train = resample_files(class_train, target_train, random_state)
         if target_val is not None:
-            class_val = resample_files(class_val, target_val)
+            class_val = resample_files(class_val, target_val, random_state)
             
         files_train += class_train
         files_val += class_val
@@ -390,13 +393,13 @@ def get_files_and_label_map(data_dirs: list,
     return files_train, files_val, label_map
 
 
-def resample_files(x: list, target: int) -> list:
+def resample_files(x: list, target: int, rand_state: int) -> list:
     ''' Resamples a list
     '''
     if len(x)>target:
-        x = list(np.random.choice(x, target, replace=0)) # downsample
+        x = list(resample(x, n_samples=target, replace=0, random_state=rand_state)) # downsample
     elif len(x)<target:
-        x = x+list(np.random.choice(x, target-len(x), replace=1)) # upsample without losing information
+        x = x+list(resample(x, n_samples=target-len(x), replace=1, random_state=rand_state)) # upsample without losing information
     return x
             
 
