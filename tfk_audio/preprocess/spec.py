@@ -317,7 +317,7 @@ def _wav_to_spec(waveform,
             fft_length=fft_length)
     else:
         spec = tf.abs(tf.signal.stft(
-            signal=waveform,
+            waveform,
             frame_length=stft_window_samples,
             frame_step=stft_hop_samples,
             fft_length=fft_length))
