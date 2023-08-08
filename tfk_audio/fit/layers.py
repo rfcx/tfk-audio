@@ -72,8 +72,7 @@ def wav_to_imagenet(inputs, target_shape, spec_params, image_scaling=True, chann
                                               db_scale = spec_params['db_scale'],
                                               mel_bands = spec_params['mel_bands'],
                                               normalize_audio = spec_params['norm'],
-                                              normalize_rms_db = spec_params['norm_db'],
-                                              tflite_compatible = spec_params['tflite_compatible']
+                                              normalize_rms_db = spec_params['norm_db']
                                             ),
                             i),
         name='spec'
