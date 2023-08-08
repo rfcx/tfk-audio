@@ -22,7 +22,6 @@ class SpecGenerator():
                  mel_bands=None,
                  normalize_audio=True,
                  normalize_rms_db=-30,
-                 tflite_compatible=True,
                  sample_seconds=3.0):
         '''
         Args:
@@ -35,7 +34,6 @@ class SpecGenerator():
             db_limits:              dB values will be clipped within this range
             mel_bands:              number of mel bands to apply
             normalize_audio:        whether to normalize waveforms to sum to 1
-            tflite_compatible:      if True will use a tflite-compatible STFT operation
             sample_seconds:         model input seconds (only used in fit module)
         '''
         
@@ -67,7 +65,6 @@ class SpecGenerator():
         else:
             self.num_frequency_bins = self.fft_length // 2 + 1
         self.image_shape = (self.sample_width, self.num_frequency_bins)
-        self.tflite_compatible = tflite_compatible
         self._spec_file_sig = '_spec.npy'
         self._processed_files = set()
 
@@ -93,8 +90,7 @@ class SpecGenerator():
                             db_scale = self.db_scale,
                             mel_bands = self.mel_bands,
                             normalize_audio = self.norm,
-                            normalize_rms_db = self.norm_db,
-                            tflite_compatible = self.tflite_compatible)
+                            normalize_rms_db = self.norm_db)
     
     def save_spec(self, indir, outdir, path):
         ''' Saves a spectrogram file
@@ -286,8 +282,7 @@ def _wav_to_spec(waveform,
                  db_limits,
                  mel_bands,
                  normalize_audio,
-                 normalize_rms_db,
-                 tflite_compatible):
+                 normalize_rms_db):
     '''Converts a 1-D waveform into a spectrogram
     
     Separating this function from the SpecGenerator class makes it serializable for audio model layers
@@ -303,24 +298,18 @@ def _wav_to_spec(waveform,
         db_scale:               whether to apply dB scaling to amplitudes
         db_limits:              dB values will be clipped within this range
         mel_bands:              number of mel bands to apply
-        tflite_compatible:      if True will use a tflite-compatible STFT operation
     Returns:
         spec: [<# frequency bins>, <# time frames>]
     '''
     if normalize_audio:
         waveform = normalize_waveform(waveform, normalize_rms_db)
-    if tflite_compatible:
-        spec = _tflite_stft_magnitude(
-            signal=waveform,
-            frame_length=stft_window_samples,
-            frame_step=stft_hop_samples,
-            fft_length=fft_length)
-    else:
-        spec = tf.abs(tf.signal.stft(
-            waveform,
-            frame_length=stft_window_samples,
-            frame_step=stft_hop_samples,
-            fft_length=fft_length))
+        
+    spec = tf.abs(tf.signal.stft(
+        waveform,
+        frame_length=stft_window_samples,
+        frame_step=stft_hop_samples,
+        fft_length=fft_length))
+                     
     if mel_bands is not None and mel_bands>0:
         spec = _apply_mel_scale(spec,
                                 mel_bands,
@@ -385,65 +374,3 @@ def normalize_waveform(wav, db=-30):
     a = tf.sqrt((wav.shape[0]*r**2)/(tf.reduce_sum(wav**2)))
     wav = wav*a
     return wav
-
-            
-def _tflite_stft_magnitude(signal, frame_length, frame_step, fft_length):
-    '''TF-Lite-compatible version of tf.abs(tf.signal.stft()).
-    
-    Taken from https://github.com/tensorflow/models/blob/master/research/audioset/yamnet/features.py
-    
-    '''
-    def _hann_window():
-        return tf.reshape(
-            tf.constant(
-                (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(0, 1.0, 1.0 / frame_length))
-                ).astype(np.float32),
-                name='hann_window'), [1, frame_length])
-
-    def _dft_matrix(dft_length):
-        '''Calculate the full DFT matrix in NumPy.'''
-        # See https://en.wikipedia.org/wiki/DFT_matrix
-        omega = (0 + 1j) * 2.0 * np.pi / float(dft_length)
-        # Don't include 1/sqrt(N) scaling, tf.signal.rfft doesn't apply it.
-        return np.exp(omega * np.outer(np.arange(dft_length), np.arange(dft_length)))
-
-    def _rdft(framed_signal, fft_length):
-        '''Implement real-input Discrete Fourier Transform by matmul.'''
-        # We are right-multiplying by the DFT matrix, and we are keeping only the
-        # first half ('positive frequencies').  So discard the second half of rows,
-        # but transpose the array for right-multiplication.  The DFT matrix is
-        # symmetric, so we could have done it more directly, but this reflects our
-        # intention better.
-        complex_dft_matrix_kept_values = _dft_matrix(fft_length)[:(fft_length // 2 + 1), :].transpose()
-        real_dft_matrix = tf.constant(
-            np.real(complex_dft_matrix_kept_values).astype(np.float32),
-            name='real_dft_matrix')
-        imag_dft_matrix = tf.constant(
-            np.imag(complex_dft_matrix_kept_values).astype(np.float32),
-            name='imaginary_dft_matrix')
-        signal_frame_length = tf.shape(framed_signal)[-1]
-        half_pad = (fft_length - signal_frame_length) // 2
-        padded_frames = tf.pad(
-            framed_signal,
-            [
-                # Don't add any padding in the frame dimension.
-                [0, 0],
-                # Pad before and after the signal within each frame.
-                [half_pad, fft_length - signal_frame_length - half_pad]
-            ],
-            mode='CONSTANT',
-            constant_values=0.0)
-        real_stft = tf.matmul(padded_frames, real_dft_matrix)
-        imag_stft = tf.matmul(padded_frames, imag_dft_matrix)
-        return real_stft, imag_stft
-
-    def _complex_abs(real, imag):
-        return tf.sqrt(tf.add(real * real, imag * imag))
-
-    framed_signal = tf.signal.frame(signal, frame_length, frame_step)
-    windowed_signal = framed_signal * _hann_window()
-    real_stft, imag_stft = _rdft(windowed_signal, fft_length)
-    stft_magnitude = _complex_abs(real_stft, imag_stft)
-    return stft_magnitude
-
-
