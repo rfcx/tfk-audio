@@ -248,6 +248,45 @@ def add_noise(x, prob, strength):
     return x
 
 
+def blend(X: tf.Tensor, 
+          y: tf.Tensor,
+          batch_size: int,
+          prob: float=1.0, 
+          strength: float=0.5):
+    ''' Apply blending augmentation to a batch of spectrograms
+    
+    Args:
+        X: batch input tensor
+        y: batch label tensor
+    Returns:
+        X: blended batch input tensor
+        y: blended batch label tensor
+    '''
+    # binary vector of length batch_size indicating whether the sample will be blended
+#     toblend = tf.where(tf.math.logical_and(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
+#                                            tf.reshape(tf.reduce_max(y, axis=1), (-1, 1, 1))==1), # only blend positive samples
+    toblend = tf.where(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
+                       tf.ones_like((batch_size,)), 
+                       tf.zeros_like((batch_size,)))
+    blendv = tf.cast(toblend, tf.float32) * strength
+    idxshuffle = tf.random.shuffle(tf.range(batch_size))
+    X = X*(1-blendv) + tf.gather(X, idxshuffle, axis=0)*blendv
+
+    # combine labels
+    labels = combine_labels(y, tf.gather(y, idxshuffle, axis=0), tf.cast(tf.reshape(toblend, [-1]), tf.bool))
+
+    return X, labels
+
+
+def combine_labels(y1: tf.Tensor, y2: tf.Tensor, idx: tf.Tensor):
+    ''' Implements logic for combining multi-label vectors with compatibility for unknown labels represented by -1
+    '''
+    y1t = tf.where(y1==1, tf.ones_like(y1)*2, y1)
+    y2t = tf.where(y2==1, tf.ones_like(y2)*2, y2)
+    y1 = tf.where(tf.tile(tf.expand_dims(idx, axis=1), multiples=[1, y1.shape[1]]), y1t+y2t, y1)
+    return tf.clip_by_value(y1, -1, 1)
+
+
 def mixup(X: tf.Tensor, 
           y: tf.Tensor,
           batch_size: int):
@@ -270,44 +309,6 @@ def mixup(X: tf.Tensor,
     y = y*(1-toblend) + tf.gather(y, idxshuffle, axis=0)*toblend
     
     return X, y
-
-
-def blend(X: tf.Tensor, 
-          y: tf.Tensor,
-          batch_size: int,
-          prob: float=1.0, 
-          strength: float=0.5):
-    ''' Apply blending augmentation to a batch of spectrograms
-    
-    Args:
-        X: batch input tensor
-        y: batch label tensor
-    Returns:
-        X: blended batch input tensor
-        y: blended batch label tensor
-    '''
-    # binary vector of length batch_size indicating whether the sample will be blended
-    toblend = tf.where(tf.math.logical_and(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
-                                           tf.reshape(tf.reduce_max(y, axis=1), (-1, 1, 1))==1), # only blend positive samples
-                       tf.ones_like((batch_size,)), 
-                       tf.zeros_like((batch_size,)))
-    blendv = tf.cast(toblend, tf.float32) * strength
-    idxshuffle = tf.random.shuffle(tf.range(batch_size))
-    X = X*(1-blendv) + tf.gather(X, idxshuffle, axis=0)*blendv
-
-    # combine labels
-    labels = combine_labels(y, tf.gather(y, idxshuffle, axis=0), tf.cast(tf.reshape(toblend, [-1]), tf.bool))
-
-    return X, y
-
-
-def combine_labels(y1: tf.Tensor, y2: tf.Tensor, idx: tf.Tensor):
-    ''' Implements logic for combining multi-label vectors with compatibility for unknown labels represented by -1
-    '''
-    y1t = tf.where(y1==1, tf.ones_like(y1)*2, y1)
-    y2t = tf.where(y2==1, tf.ones_like(y2)*2, y2)
-    y1 = tf.where(tf.tile(tf.expand_dims(idx, axis=1), multiples=[1, y1.shape[1]]), y1t+y2t, y1)
-    return tf.clip_by_value(y1, -1, 1)
     
 
 def beta_dist(size, concentration_0=0.2, concentration_1=0.2):
