@@ -133,7 +133,8 @@ def spectrogram_dataset_from_tfrecords(files: list,
     
     # add sample weight
     if label_weights!=(1, 1):
-        ds = ds.map(lambda x, y: [x, y, tf.gather(label_weights, tf.cast(tf.reduce_max(y), tf.int32))], 
+        label_weights = (0, *label_weights)
+        ds = ds.map(lambda x, y: [x, y, tf.gather(label_weights, tf.cast(tf.reduce_max(y)+1, tf.int32))], 
                     num_parallel_calls=AUTO)
 
     return ds.batch(batch_size).shuffle(5, reshuffle_each_iteration=True) # batch and shuffle batches
