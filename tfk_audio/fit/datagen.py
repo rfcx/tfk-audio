@@ -320,26 +320,32 @@ def beta_dist(size, concentration_0=0.2, concentration_1=0.2):
 
 def get_files_and_label_map(data_dirs: list, 
                             train_split: float=1.0, 
+                            test_split: float=0.0,
                             classes: Optional[list]=None, 
                             target_train: Optional[int]=None, 
                             target_val: Optional[int]=None, 
+                            target_test: Optional[int]=None, 
                             ext: str='_spec.npy',
                             random_state: Optional[int]=None):
-    ''' Prepares train/val path lists and a label dictionary
+    ''' Prepares train/val/test path lists and a label dictionary
 
     Args:
         data_dirs:     list of paths to directories in which to search for files
         train_split:   portion of data per class to use for training
+        test_split:    portion of data per class to use for testing
         classes:       list of classes to get files for
         target_train:  desired number of training samples per class for resampling
         target_val:    desired number of validation samples per class for resampling
+        target_test:   desired number of testing samples per class for resampling
         ext:           suffix of files to collect
         
     Returns:
         files_train:   list of training file paths
         files_val:     list of validation file paths
+        files_test:    list of testing file paths
         labels:        class dictionary
     '''
+    
     if not isinstance(data_dirs, list): # check arg is list
         data_dirs = [data_dirs]
     
@@ -357,8 +363,7 @@ def get_files_and_label_map(data_dirs: list,
                     classes.add(j)
         classes = sorted(list(classes))
             
-    files_train = list()
-    files_val = list()
+    files_train, files_val, files_test = [], [], []
     label_map = dict()
     if ('background' in classes):
         classes = ['background']+[i for i in classes if i!='background']
@@ -366,33 +371,43 @@ def get_files_and_label_map(data_dirs: list,
         label_map[i]=cnt # add class to dict
         
         # get class files
-        class_train = []
-        class_val = []
+        class_train, class_val, class_test = [], [], []
         for dr in data_dirs:
             if not os.path.exists(dr+i):
                 continue
             tmp = [dr+i+'/'+j for j in sorted(os.listdir(dr+i)) if j.endswith(ext)]
             # split data
-            if train_split==1.0:
-                tmp_train=tmp
-                tmp_val=[]
+             
+            if train_split == 1.0:
+                tmp_train = tmp
+                tmp_val ,tmp_test = [], []
             else:
                 tmp_train, tmp_val = train_test_split(tmp,
                                                       train_size=train_split,
                                                       random_state=random_state)
+                if test_split:
+                    tmp_val, tmp_test = train_test_split(tmp_val,
+                                                      test_size=test_split,
+                                                      random_state=random_state)
+
+                
             class_train += tmp_train
             class_val += tmp_val
+            class_test += tmp_test
             
         # maybe resample
         if target_train is not None:
             class_train = resample_files(class_train, target_train, random_state)
         if target_val is not None:
             class_val = resample_files(class_val, target_val, random_state)
+        if target_test is not None:
+            class_test = resample_files(class_test, target_test, random_state)
             
         files_train += class_train
         files_val += class_val
+        files_test += class_test
                 
-    return files_train, files_val, label_map
+    return files_train, files_val, files_test, label_map
 
 
 def resample_files(x: list, target: int, rand_state: int) -> list:
