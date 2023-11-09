@@ -332,7 +332,7 @@ def get_files_and_label_map(data_dirs: list,
     Args:
         data_dirs:     list of paths to directories in which to search for files
         train_split:   portion of data per class to use for training
-        test_split:    portion of data per class to use for testing
+        test_split:    portion of validation data per class to use for testing
         classes:       list of classes to get files for
         target_train:  desired number of training samples per class for resampling
         target_val:    desired number of validation samples per class for resampling
