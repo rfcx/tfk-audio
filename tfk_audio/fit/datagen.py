@@ -20,6 +20,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        augment: bool = False,
                                        augment_blend_prob: bool = 0.5,
                                        augment_blend_strength: float = 0.5,
+                                       augment_blend_req_pos: bool = False,
                                        augment_mixup: bool = False,
                                        augment_max_time_masks: int = 5,
                                        augment_max_time_mask_size: float = 0.1,
@@ -31,6 +32,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
                                        augment_max_freq_shift: float = 0.05,
                                        augment_max_contrast: float = 2.0,
                                        assume_negative_prob: float = 0.0,
+                                       label_smoothing: float = 0.0,
                                        label_weights: tuple = (1, 1),
                                        repeat = False):
     ''' Prepares a tf.data.Dataset for generating spectrogram training data
@@ -44,6 +46,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
         augment:                     whether to apply data augmentation
         augment_blend_prob:          probability of blending a sample with another
         augment_blend_strength:      strength of blended samples
+        augment_blend_req_pos:       whether to require at least one positive sample for blending
         augment_mixup:               whether to apply mixup augmentation; not recommended along with blending
         augment_max_time_masks:      max number of masks to apply in the time axis (https://arxiv.org/abs/1904.08779)
         augment_max_time_mask_size:  max desired mask width (fraction of total time)
@@ -55,11 +58,12 @@ def spectrogram_dataset_from_tfrecords(files: list,
         augment_max_freq_shift:      max freq shift (fraction of total frequency range)
         augment_max_contrast:        max random contrast factor
         assume_negative_prob:        probability of randomly setting a -1 label to 0
+        label_smoothing:             amount of label smoothing to apply. 
         label_weights:               a tuple containing the weight of negative and positive samples, respectively
         repeat:                      whether to repeat the data infinitely
     '''    
     ds = tf.data.Dataset.from_tensor_slices(files) # list of tfrecord files
-    ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
+    # ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
     if repeat:
         ds = ds.repeat()
     ds = ds.interleave(tf.data.TFRecordDataset, 
@@ -67,8 +71,8 @@ def spectrogram_dataset_from_tfrecords(files: list,
                        block_length=1) # load tfrecords
     ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), 
                 num_parallel_calls=AUTO) # parse records
-    ds = ds.shuffle(batch_size*2, 
-                    reshuffle_each_iteration=True) # use buffer shuffling
+    # ds = ds.shuffle(batch_size*2, 
+    #                 reshuffle_each_iteration=True) # use buffer shuffling
         
     if time_crop<image_shape[0]:
         # crop the sample in time
@@ -87,7 +91,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
         # blending
         if augment_blend_prob>0:
             ds = ds.batch(batch_size)
-            ds = ds.map(lambda x, y: blend(x, y, batch_size, augment_blend_prob, augment_blend_strength), 
+            ds = ds.map(lambda x, y: blend(x, y, batch_size, augment_blend_prob, augment_blend_req_pos, augment_blend_strength), 
                         num_parallel_calls=AUTO)
             ds = ds.unbatch()
 
@@ -129,7 +133,10 @@ def spectrogram_dataset_from_tfrecords(files: list,
     if assume_negative_prob>0:
         ds = ds.map(lambda x, y: (x, assume_negative(y, (nclass,), assume_negative_prob)),
                     num_parallel_calls=AUTO)
-        
+    
+    if label_smoothing:
+        # Apply label smoothing to the labels
+        ds = ds.map(lambda x, y: (x, _label_smoothing(y, label_smoothing)), num_parallel_calls=AUTO)
     
     # add sample weight
     if label_weights!=(1, 1):
@@ -140,6 +147,35 @@ def spectrogram_dataset_from_tfrecords(files: list,
     return ds.batch(batch_size).shuffle(5, reshuffle_each_iteration=True) # batch and shuffle batches
     
     
+def _label_smoothing(y: tf.Tensor, alpha: float = 0.1) -> tf.Tensor:
+    """
+    Apply label smoothing to the input tensor.
+
+    Args:
+        y (tf.Tensor): The input tensor with integer labels.
+        alpha (float): The smoothing parameter. Default is 0.1.
+
+    Returns:
+        tf.Tensor: The tensor with smoothed labels.
+
+    Notes:
+        This function performs label smoothing by subtracting alpha from positive labels (> 0)
+        and assigning alpha / number of classes to labels equal to zero.
+
+    Example:
+        >>> y = tf.constant([[0, -1, 1], [0, 1, 0], [1, 0, 0]])
+        >>> y_smoothed = label_smoothing(y, alpha=0.1)
+        >>> print(y_smoothed.numpy())
+    """
+    # Smooth only the positive values (greater than 0)
+    y_smoothed = tf.where(y > 0, y - alpha, y)
+
+    # For values equal to zero, assign alpha / number of classes
+    num_classes = tf.shape(y)[-1]
+    y_smoothed = tf.where(y == 0, alpha / tf.cast(num_classes, dtype=tf.float32), y_smoothed)
+
+    return y_smoothed
+
 def assume_negative(y, shape, prob=0.25):
     ''' Sets -1 labelst to 0 with some probability
     '''
@@ -252,7 +288,8 @@ def add_noise(x, prob, strength):
 def blend(X: tf.Tensor, 
           y: tf.Tensor,
           batch_size: int,
-          prob: float=1.0, 
+          prob: float=1.0,
+          augment_blend_req_pos=False, 
           strength: float=0.5):
     ''' Apply blending augmentation to a batch of spectrograms
     
@@ -264,11 +301,20 @@ def blend(X: tf.Tensor,
         y: blended batch label tensor
     '''
     # binary vector of length batch_size indicating whether the sample will be blended
-#     toblend = tf.where(tf.math.logical_and(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
-#                                            tf.reshape(tf.reduce_max(y, axis=1), (-1, 1, 1))==1), # only blend positive samples
-    toblend = tf.where(tf.random.uniform((batch_size, 1, 1), 0, 1)<=prob, 
+    # according to user defined probability
+    toblend_prob = tf.random.uniform((batch_size, 1, 1), 0, 1) <= prob
+
+    if augment_blend_req_pos:
+        # add 2nd condition where at least one positive will be present in the final blended sample
+        toblend_positive = tf.reshape(tf.reduce_max(y, axis=1), (-1, 1, 1)) == 1
+        
+        toblend = tf.where(tf.logical_and(toblend_prob, toblend_positive), 1, 0)
+                                           
+    else:
+        toblend = tf.where(toblend_prob, 
                        tf.ones_like((batch_size,)), 
                        tf.zeros_like((batch_size,)))
+
     blendv = tf.cast(toblend, tf.float32) * strength
     idxshuffle = tf.random.shuffle(tf.range(batch_size))
     X = X*(1-blendv) + tf.gather(X, idxshuffle, axis=0)*blendv
@@ -310,6 +356,8 @@ def mixup(X: tf.Tensor,
     y = y*(1-toblend) + tf.gather(y, idxshuffle, axis=0)*toblend
     
     return X, y
+
+
     
 
 def beta_dist(size, concentration_0=0.2, concentration_1=0.2):
