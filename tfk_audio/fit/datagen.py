@@ -63,7 +63,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
         repeat:                      whether to repeat the data infinitely
     '''    
     ds = tf.data.Dataset.from_tensor_slices(files) # list of tfrecord files
-    # ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
+    ds = ds.shuffle(len(files), reshuffle_each_iteration=True) # shuffle tfrecord files
     if repeat:
         ds = ds.repeat()
     ds = ds.interleave(tf.data.TFRecordDataset, 
@@ -71,8 +71,8 @@ def spectrogram_dataset_from_tfrecords(files: list,
                        block_length=1) # load tfrecords
     ds = ds.map(lambda x: _parse_tfrecord(x, image_shape, nclass), 
                 num_parallel_calls=AUTO) # parse records
-    # ds = ds.shuffle(batch_size*2, 
-    #                 reshuffle_each_iteration=True) # use buffer shuffling
+    ds = ds.shuffle(batch_size*2, 
+                    reshuffle_each_iteration=True) # use buffer shuffling
         
     if time_crop<image_shape[0]:
         # crop the sample in time
@@ -300,23 +300,36 @@ def blend(X: tf.Tensor,
         X: blended batch input tensor
         y: blended batch label tensor
     '''
-    # binary vector of length batch_size indicating whether the sample will be blended
+    # boolean vector of length batch_size indicating whether the sample will be blended
     # according to user defined probability
     toblend_prob = tf.random.uniform((batch_size, 1, 1), 0, 1) <= prob
 
     if augment_blend_req_pos:
         # add 2nd condition where at least one positive will be present in the final blended sample
+        # boolean vector of length batch_size indicating whether each sample will be blended based on if has at least 1
+        # positive in it
         toblend_positive = tf.reshape(tf.reduce_max(y, axis=1), (-1, 1, 1)) == 1
         
+        # length batch_size indicating whether the sample will be blended based on blend_prob and 
+        # if the sample in the vector is a positive
         toblend = tf.where(tf.logical_and(toblend_prob, toblend_positive), 1, 0)
                                            
     else:
+        # length batch_size indicating whether the sample will be blended based solely on blend_prob
         toblend = tf.where(toblend_prob, 
                        tf.ones_like((batch_size,)), 
                        tf.zeros_like((batch_size,)))
 
+    # Multiplies, to_blend by the strength, 0s remain zeros, 1s turn into strength 
     blendv = tf.cast(toblend, tf.float32) * strength
+    
+    # Shuffle the indices of each sample in the vector, this will be used to
+    # randomly select a second sample to blend
+    # results in vector of length batch_size with different indices
     idxshuffle = tf.random.shuffle(tf.range(batch_size))
+
+    # For each sample selected to be blended, select a second sample from the batch
+    # while applying the strenght of each
     X = X*(1-blendv) + tf.gather(X, idxshuffle, axis=0)*blendv
 
     # combine labels
