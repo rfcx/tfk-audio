@@ -446,6 +446,8 @@ def get_files_and_label_map(data_dirs: list,
                 tmp_train, tmp_val = train_test_split(tmp,
                                                       train_size=train_split,
                                                       random_state=random_state)
+                tmp_test = []
+                
                 if test_split:
                     tmp_val, tmp_test = train_test_split(tmp_val,
                                                       test_size=test_split,
