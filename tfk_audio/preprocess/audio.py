@@ -17,11 +17,12 @@ def load_wav(path, sr=None, numpy=False):
         sr: sample rate of the recording
         
     '''
-    target_sr = sr
+    target_sr = int(sr)
+
     y, sr = tf.audio.decode_wav(tf.io.read_file(path)) # load with original sample rate
     if len(tf.shape(y))>1:
         y = tf.reduce_mean(y, axis=1)
-    if target_sr is not None: # maybe resample
+    if target_sr is not None and target_sr != sr: # maybe resample
         y = resample(y.numpy(), sr.numpy(), target_sr)
         y = tf.convert_to_tensor(y)
         sr = target_sr
