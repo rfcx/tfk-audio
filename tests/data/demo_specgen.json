@@ -1,0 +1,27 @@
+{
+    "_spec_file_sig": "_spec.npy",
+    "db_limits": [
+        null,
+        null
+    ],
+    "db_scale": true,
+    "fft_length": 1024,
+    "image_shape": [
+        196,
+        513
+    ],
+    "max_hz": 6000.0,
+    "mel_bands": null,
+    "min_hz": 0.0,
+    "norm": true,
+    "norm_db": -30,
+    "num_frequency_bins": 513,
+    "sample_rate": 12000,
+    "sample_seconds": 2.0,
+    "sample_width": 196,
+    "second_width": 96,
+    "stft_hop_samples": 120,
+    "stft_hop_seconds": 0.01,
+    "stft_window_samples": 600,
+    "stft_window_seconds": 0.05
+}

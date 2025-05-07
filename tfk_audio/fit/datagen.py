@@ -40,6 +40,7 @@ def spectrogram_dataset_from_tfrecords(files: list,
     Args:
         files:                       list of paths to tfrecord files
         image_shape:                 integer tuple of spectrogram image shape: (frequency bins, time bins)
+        nclass:                      number of classes for parsing
         batch_size:                  samples per batch
         time_crop:                   None or int indicating width to crop spectrograms to
         random_time_crop:            boolean indicating whether time crops should be randomly shifted
@@ -73,7 +74,9 @@ def spectrogram_dataset_from_tfrecords(files: list,
                 num_parallel_calls=AUTO) # parse records
     ds = ds.shuffle(batch_size*2, 
                     reshuffle_each_iteration=True) # use buffer shuffling
-        
+
+    if time_crop is None:
+        time_crop = image_shape[0]
     if time_crop<image_shape[0]:
         # crop the sample in time
         # doing this turns the results into a tensor with undefined time width, so some of the following operations
@@ -371,8 +374,6 @@ def mixup(X: tf.Tensor,
     return X, y
 
 
-    
-
 def beta_dist(size, concentration_0=0.2, concentration_1=0.2):
     gamma_1_sample = tf.random.gamma(shape=[size], alpha=concentration_1)
     gamma_2_sample = tf.random.gamma(shape=[size], alpha=concentration_0)
@@ -513,10 +514,11 @@ def plot_batch_samples(batch: tf.Tensor, nr=4, nc=4, dblims=(-100, 20)):
     '''
     plt.figure(figsize=(15,15))
     for c in range(nr*nc):
-        plt.subplot(nr,nc,c+1)
-        plt.pcolormesh(batch[c].numpy().T)
-        plt.clim(dblims)
-        plt.axis('off') 
+        if c<batch.shape[0]:
+            plt.subplot(nr,nc,c+1)
+            plt.pcolormesh(batch[c].numpy().T)
+            plt.clim(dblims)
+            plt.axis('off') 
         
         
 def create_tfrecords(files: list,
@@ -545,6 +547,7 @@ def create_tfrecords(files: list,
         if i.endswith('.tfrec'):
             if overwrite:
                 os.remove(outdir+i)
+    print('Creating tfrecord files in '+outdir)
     for i in range(0, len(files), batch_size):
         if i%update==0:
             print(i)

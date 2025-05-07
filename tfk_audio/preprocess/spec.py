@@ -37,7 +37,7 @@ class SpecGenerator():
             sample_seconds:         model input seconds (only used in fit module)
         '''
         
-        self.sample_rate = float(sample_rate)
+        self.sample_rate = int(sample_rate)
         self.stft_window_seconds = stft_window_seconds
         self.stft_hop_seconds = stft_hop_seconds
         self.min_hz = min_hz
