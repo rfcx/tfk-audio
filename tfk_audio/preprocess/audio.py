@@ -4,12 +4,12 @@ import tensorflow as tf
 from ffmpy import FFmpeg, FFRuntimeError
 
 
-def load_wav(path, sr=None, numpy=False):
+def load_wav(path, target_sr=None, numpy=False, print_audio_specs=False):
     '''Loads a 16-bit PCM .wav file into a tensor
     
     Args:
         path: .wav file path
-        sr: desired sample rate of loaded audio
+        target_sr: desired sample rate of loaded audio
         numpy: whether to return loaded audio as numpy array
     
     Returns:
@@ -17,7 +17,9 @@ def load_wav(path, sr=None, numpy=False):
         sr: sample rate of the recording
         
     '''
-    target_sr = int(sr)
+
+    if target_sr is not None:
+        target_sr = int(target_sr)
 
     y, sr = tf.audio.decode_wav(tf.io.read_file(path)) # load with original sample rate
     if len(tf.shape(y))>1:
@@ -26,6 +28,9 @@ def load_wav(path, sr=None, numpy=False):
         y = resample(y.numpy(), sr.numpy(), target_sr)
         y = tf.convert_to_tensor(y)
         sr = target_sr
+    if print_audio_specs:
+        print(f'Duration: {y.shape[0] / sr:.2f} seconds')
+        print(f'Sample rate: {sr} Hz')
     if numpy:
         return y.numpy(), sr.numpy()
     else:
