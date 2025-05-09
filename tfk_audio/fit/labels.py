@@ -14,44 +14,38 @@ def get_classification_labels(files: list, label_map: dict, label_format: str) -
         multi-class-categorical
         binary
 
-
         ---- multi-label ----
-
             example:     y = [[0, 1, 0, -1],     [<# samples>, <# classes>]
-                              [1, -1, 0, 0]]
+                              [1, -1, 0, 1]]
                               
-            In this case, the code will search for files with the same path but with an added .csv extension,
-                these files should contain a single column containing the list of present class names, with no header.
+            In this case, the code will search for files with the same path but with an added .csv extension.
+            The CSVs files should contain a single column containing the list of present class names, with no header.
             Otherwise, if the files are in a directory with structure 
 
-                    .../<"positive" or "negative">/<class_name>/<filename>
+                .../<"positive" or "negative">/<class_name>/<filename>
 
-                then each label vector will contain a 1 or 0 at the index of the labeled species,
+                then each label vector will contain a 1 or 0 at the index of the labeled class,
                 and -1's elsewhere, to indicate unknown labels.
                 
-            Unknown labels can be indicated by -1 and used with a loss function wrapped with tfk_audio.fit.loss.mask_loss().
+            Unknown labels can be indicated by -1 and used with a loss/metric function wrapped with tfk_audio.fit.metrics.MaskedLoss() (or MaskedMetric()).
 
         ---- multi-class-one-hot ----
-
             example:     y = [[0, 0, 0, 1],     [<# samples>, <# classes>]
                               [0, 1, 0, 0]]
 
             File paths are assumed to follow .../<class_name>/<filename>
 
         ---- multi-class-categorical ----
-
             example:     y = [[3],              [<# samples>, 1] 
                               [1]]
 
             File paths are assumed to follow .../<class_name>/<filename>
 
         ---- binary ----
-
             example:     y = [[0],              [<# samples>, 1] 
                               [0], 
                               [1], 
                               [1]]
-            
     
     Args:
         files:        list of data file paths
@@ -88,24 +82,24 @@ def get_labels_binary(files: list, label_map: dict) -> np.ndarray:
     assert len(label_map)>0, 'Error: Empty label map'
     assert len(label_map)<3, 'Error: Too many classes to create binary labels'
     if len(label_map)>1:
-        assert 'background' in list(label_map.keys()), \
-        '''Error: Could not interpret label_map as binary. 
-It should contain a single class, or two classes with one named "background".
-        '''  
+        assert 'background' in list(label_map.keys()), (
+            "Error: Could not interpret label_map as binary. "
+            "It should contain a single class, or two classes with one named 'background'."
+        )
     if len(label_map)==1:
-        assert files[0].split('/')[-3] in ('positive', 'negative'), \
-        '''Error: Unsure how to determine if the class is present. If label_map has a single class,
-files should be in a directory that follows <"positive" or "negative">/<class_name>/<filename>. '
-Otherwise, it should have two classes with one named "background".
-        '''
+        assert files[0].split('/')[-3] in ('positive', 'negative'), (
+            "Error: Unsure how to determine if the class is present.  "
+            "If label_map has a single class, files should be in a directory that follows <'positive' or 'negative'>/<class_name>/<filename>. "
+            "Otherwise, it should have two classes with one named 'background'"
+        )
     y = np.ones((len(files),1))*-1
     for c,i in enumerate(files):
         if len(label_map)==1:
             label = i.split('/')[-3]
-            assert label in ('positive', 'negative'), \
-            '''Error: Could not interpret label. If label_map has a single class, 
-files should be in a directory that follows <"positive" or "negative">/<class_name>/<filename>.
-            '''
+            assert label in ('positive', 'negative'), (
+                "Error: Could not interpret label. "
+                "If label_map has a single class, files should be in a directory that follows <'positive' or 'negative'>/<class_name>/<filename>."
+            )
             if label=='positive':
                 y[c] = 1
             else:

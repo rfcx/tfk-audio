@@ -41,8 +41,8 @@ pip install -e .
 #### Audio
 `audio` provides functions for loading and processing audio files.
 ```python
-# load a single file, and check audio specs
-wav, sr = audio.load_wav("example.wav", print_audio_specs=True)
+# load a single file, and check duration and sample rate
+wav, sr = audio.load_wav("example.wav", print_audio_info=True)
 ```
 
 #### Spec
