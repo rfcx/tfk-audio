@@ -30,9 +30,18 @@ def WavImageNet(target_shape,
     return tf.keras.models.Model(inputs, outputs, name='wav_to_imagenet')
 
 
-def spec_to_imagenet(inputs, target_shape, image_scaling=True, channels=3):
-    ''' Converts a batch of 2D inputs to 3-channel images
-    
+def spec_to_imagenet(inputs, target_shape, image_scaling=True, scaling_factor=255, channels=3):
+    '''
+    Converts a batch of 2D spectrogram inputs to 3-channel images.
+
+    Args:
+        inputs: Tensor of shape (batch_size, height, width) or (batch_size, height, width, channels).
+        target_shape: Tuple (height, width) specifying the target image size.
+        image_scaling: Boolean indicating whether to scale the image to [0, 255].
+        channels: Number of output channels (e.g., 1 for grayscale, 3 for RGB).
+
+    Returns:
+        Tensor of shape (batch_size, target_height, target_width, channels).
     '''
     if (len(inputs.shape)==3): # if no channels axis already
         x = inputs[..., tf.newaxis]
@@ -43,22 +52,31 @@ def spec_to_imagenet(inputs, target_shape, image_scaling=True, channels=3):
     x = layers.Resizing(target_shape[0], target_shape[1])(x)
 
     # add channels
-    if (channels is not None) and (channels>1):
-        x = tf.tile(x, [1, 1, 1, channels])
-    elif (channels is None) or (channels==0):
+    if channels > 1:
+        x = tf.repeat(x, repeats=channels, axis=-1)
+    elif channels == 0:
         x = x[..., 0]
         
     # scale
     if image_scaling:
         x = tf.map_fn(norm, x)
-#         x = norm(x)
-        x *= 255
+        x *= scaling_factor
         
     return x
 
 
 def wav_to_imagenet(inputs, target_shape, spec_params, image_scaling=True, channels=3):
-        
+    ''' Converts a 1D waveform to a 3-channel image
+    
+    Args:
+        inputs: Tensor of shape (batch_size, time).
+        target_shape: Tuple (height, width) specifying the target image size.
+        spec_params: Dictionary of parameters for spectrogram conversion.
+        image_scaling: Boolean indicating whether to scale the image to [0, 255].
+        channels: Number of output channels (e.g., 1 for grayscale, 3 for RGB).
+    Returns:
+        Tensor of shape (batch_size, target_height, target_width, channels).
+    '''
     x = layers.Lambda(
         lambda i: tf.map_fn(lambda j:
                             spec._wav_to_spec(j,
@@ -77,24 +95,6 @@ def wav_to_imagenet(inputs, target_shape, spec_params, image_scaling=True, chann
                             i),
         name='spec'
         )(inputs)
-
-# maybe just this?
-#     x = tf.map_fn(
-#         lambda j: spec._wav_to_spec(j,
-#                                   sample_rate = spec_params['sample_rate'],
-#                                   stft_window_samples = spec_params['stft_window_samples'],
-#                                   stft_hop_samples = spec_params['stft_hop_samples'],
-#                                   min_hz = spec_params['min_hz'],
-#                                   max_hz = spec_params['max_hz'],
-#                                   fft_length = spec_params['fft_length'],
-#                                   db_limits = spec_params['db_limits'],
-#                                   db_scale = spec_params['db_scale'],
-#                                   mel_bands = spec_params['mel_bands'],
-#                                   normalize_audio = spec_params['norm'],
-#                                   normalize_rms_db = spec_params['norm_db'],
-#                                   tflite_compatible = spec_params['tflite_compatible']
-#                                  ))(inputs)
-    
     return spec_to_imagenet(x, 
                             target_shape=target_shape, 
                             image_scaling=image_scaling, 
@@ -117,27 +117,7 @@ def norm(tensor):
     return tensor
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# draft - enabling audio windowing within the WavImageNet layer
 # def wav_to_imagenet(inputs,
 #                     target_shape,
 #                     spec_params,
